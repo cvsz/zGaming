@@ -133,6 +133,9 @@ casino-platform/
 ```bash
 ./generator/meta-master.sh all
 ./generator/meta-master.sh final   # alias ของ all
+./generator/meta-master.sh installer
+./generator/meta-master.sh upgrade
+./generator/meta-master.sh test    # run phase 110 (go-live test/report)
 ./generator/meta-master.sh list
 ./generator/meta-master.sh phase 60-frontend.sh
 ```

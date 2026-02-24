@@ -137,7 +137,14 @@ casino-platform/
 ./generator/meta-master.sh upgrade
 ./generator/meta-master.sh test    # run phase 110 (go-live test/report)
 ./generator/meta-master.sh list
+./generator/meta-master.sh status
 ./generator/meta-master.sh phase 60-frontend.sh
+```
+รองรับการ run แบบช่วง phase (resume/retry-safe):
+
+```bash
+MM_FROM_PHASE=60-frontend.sh ./generator/meta-master.sh upgrade
+MM_FROM_PHASE=90-cloudflare.sh MM_TO_PHASE=99-release.sh ./generator/meta-master.sh all
 ```
 
 ---

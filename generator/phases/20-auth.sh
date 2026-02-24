@@ -1,198 +1,247 @@
 #!/usr/bin/env bash
+# ============================================================
+# PHASE 20 – AUTH / JWT / ROLE MANAGEMENT
+# ============================================================
+
 set -euo pipefail
 
-echo "[PHASE 20] AUTH – Login / JWT / Role Based Access"
+echo "[PHASE 20] AUTH – JWT / Role-based Authentication"
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# ------------------------------------------------------------
+# Resolve ROOT safely
+# ------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BACKEND="$ROOT/backend"
 
-mkdir -p "$BACKEND"/{auth,api,db}
+cd "$BACKEND"
 
-# ============================================================
-# 1. User / Role Schema
-# ============================================================
+# ------------------------------------------------------------
+# Ensure directories
+# ------------------------------------------------------------
+mkdir -p \
+  auth \
+  middleware \
+  api/auth \
+  modules/user
 
-cat > "$BACKEND/db/auth.sql" <<'SQL'
-CREATE TABLE IF NOT EXISTS users (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  email VARCHAR(255) UNIQUE NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
-  role ENUM('player','admin') NOT NULL DEFAULT 'player',
-  status ENUM('active','disabled') NOT NULL DEFAULT 'active',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+# ------------------------------------------------------------
+# JWT Config (append if missing)
+# ------------------------------------------------------------
+if ! grep -q "^JWT_SECRET=" .env; then
+  echo "🔐 Adding JWT config to backend .env"
+  cat >> .env <<'EOF'
 
-CREATE TABLE IF NOT EXISTS auth_audit (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT,
-  event VARCHAR(64),
-  ip VARCHAR(64),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-SQL
+# JWT CONFIG
+JWT_SECRET=change-me-super-secret
+JWT_ISSUER=casino-platform
+JWT_AUDIENCE=casino-clients
+JWT_TTL=3600
+EOF
+fi
 
-# ============================================================
-# 2. JWT Utility (HMAC-SHA256)
-# ============================================================
-
-cat > "$BACKEND/auth/JWT.php" <<'PHP'
+# ------------------------------------------------------------
+# Auth Service (JWT)
+# ------------------------------------------------------------
+cat > auth/JwtService.php <<'EOF'
 <?php
-final class JWT {
+declare(strict_types=1);
 
-  private static function b64(string $data): string {
-    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
-  }
+namespace App\Auth;
 
-  private static function ub64(string $data): string {
-    return base64_decode(strtr($data, '-_', '+/'));
-  }
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
 
-  public static function encode(array $payload, string $secret, int $ttl): string {
-    $header = self::b64(json_encode(['alg'=>'HS256','typ'=>'JWT']));
-    $payload['exp'] = time() + $ttl;
-    $body = self::b64(json_encode($payload));
-    $sig = self::b64(hash_hmac('sha256', "$header.$body", $secret, true));
-    return "$header.$body.$sig";
-  }
+final class JwtService
+{
+    public static function generate(array $claims): string
+    {
+        $now = time();
 
-  public static function decode(string $jwt, string $secret): array {
-    [$h,$b,$s] = explode('.', $jwt);
-    $valid = self::b64(hash_hmac('sha256', "$h.$b", $secret, true));
-    if (!hash_equals($valid, $s)) {
-      throw new RuntimeException('invalid_jwt');
+        $payload = array_merge($claims, [
+            'iss' => getenv('JWT_ISSUER'),
+            'aud' => getenv('JWT_AUDIENCE'),
+            'iat' => $now,
+            'exp' => $now + (int)getenv('JWT_TTL'),
+        ]);
+
+        return JWT::encode($payload, getenv('JWT_SECRET'), 'HS256');
     }
-    $payload = json_decode(self::ub64($b), true);
-    if (($payload['exp'] ?? 0) < time()) {
-      throw new RuntimeException('jwt_expired');
+
+    public static function verify(string $token): array
+    {
+        return (array) JWT::decode(
+            $token,
+            new Key(getenv('JWT_SECRET'), 'HS256')
+        );
     }
-    return $payload;
-  }
 }
-PHP
+EOF
 
-# ============================================================
-# 3. Auth Guard (Require Login / Role)
-# ============================================================
-
-cat > "$BACKEND/auth/Auth.php" <<'PHP'
+# ------------------------------------------------------------
+# Password Hasher
+# ------------------------------------------------------------
+cat > auth/Password.php <<'EOF'
 <?php
-final class Auth {
+declare(strict_types=1);
 
-  public static function user(): array {
-    $hdr = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if (!str_starts_with($hdr, 'Bearer ')) {
-      throw new RuntimeException('missing_token');
-    }
-    $jwt = substr($hdr, 7);
-    return JWT::decode($jwt, getenv('JWT_SECRET'));
-  }
+namespace App\Auth;
 
-  public static function requireRole(string $role): array {
-    $u = self::user();
-    if (($u['role'] ?? '') !== $role) {
-      http_response_code(403);
-      echo json_encode(['error'=>'forbidden']);
-      exit;
+final class Password
+{
+    public static function hash(string $plain): string
+    {
+        return password_hash($plain, PASSWORD_BCRYPT);
     }
-    return $u;
-  }
+
+    public static function verify(string $plain, string $hash): bool
+    {
+        return password_verify($plain, $hash);
+    }
 }
-PHP
+EOF
 
-# ============================================================
-# 4. Login API
-# ============================================================
-
-cat > "$BACKEND/api/login.php" <<'PHP'
+# ------------------------------------------------------------
+# Auth Middleware (JWT + Role)
+# ------------------------------------------------------------
+cat > middleware/AuthMiddleware.php <<'EOF'
 <?php
-require_once __DIR__ . '/../core/Bootstrap.php';
-require_once __DIR__ . '/../auth/JWT.php';
+declare(strict_types=1);
 
-Security::requireJson();
+namespace App\Middleware;
+
+use App\Auth\JwtService;
+
+final class AuthMiddleware
+{
+    public static function require(array $roles = []): array
+    {
+        $header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+
+        if (!str_starts_with($header, 'Bearer ')) {
+            http_response_code(401);
+            exit(json_encode(['error' => 'missing_token']));
+        }
+
+        $token = substr($header, 7);
+
+        try {
+            $claims = JwtService::verify($token);
+        } catch (\Throwable $e) {
+            http_response_code(401);
+            exit(json_encode(['error' => 'invalid_token']));
+        }
+
+        if ($roles && !in_array($claims['role'] ?? null, $roles, true)) {
+            http_response_code(403);
+            exit(json_encode(['error' => 'forbidden']));
+        }
+
+        return $claims;
+    }
+}
+EOF
+
+# ------------------------------------------------------------
+# User Repository
+# ------------------------------------------------------------
+cat > modules/user/UserRepository.php <<'EOF'
+<?php
+declare(strict_types=1);
+
+namespace App\Modules\User;
+
+use App\Database;
+use Ramsey\Uuid\Uuid;
+
+final class UserRepository
+{
+    public static function findByEmail(string $email): ?array
+    {
+        $db = Database::connect();
+        $stmt = $db->prepare("SELECT * FROM users WHERE email = ?");
+        $stmt->execute([$email]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public static function create(string $email, string $hash, string $role): string
+    {
+        $db = Database::connect();
+        $id = Uuid::uuid4()->toString();
+
+        $stmt = $db->prepare(
+            "INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?)"
+        );
+        $stmt->execute([$id, $email, $hash, $role]);
+
+        return $id;
+    }
+}
+EOF
+
+# ------------------------------------------------------------
+# Login API
+# ------------------------------------------------------------
+cat > api/auth/login.php <<'EOF'
+<?php
+declare(strict_types=1);
+
+use App\Auth\JwtService;
+use App\Auth\Password;
+use App\Modules\User\UserRepository;
+
+require __DIR__ . '/../../core/Bootstrap.php';
 
 $data = json_decode(file_get_contents('php://input'), true);
+
 $email = $data['email'] ?? '';
-$pass  = $data['password'] ?? '';
+$password = $data['password'] ?? '';
 
-$db = Database::conn();
-$stmt = $db->prepare("SELECT * FROM users WHERE email=? AND status='active'");
-$stmt->execute([$email]);
-$user = $stmt->fetch();
+$user = UserRepository::findByEmail($email);
 
-if (!$user || !password_verify($pass, $user['password_hash'])) {
-  http_response_code(401);
-  echo json_encode(['error'=>'invalid_credentials']);
-  exit;
+if (!$user || !Password::verify($password, $user['password_hash'])) {
+    http_response_code(401);
+    exit(json_encode(['error' => 'invalid_credentials']));
 }
 
-$token = JWT::encode(
-  ['uid'=>$user['id'], 'role'=>$user['role']],
-  getenv('JWT_SECRET'),
-  3600
-);
+$token = JwtService::generate([
+    'sub' => $user['id'],
+    'role' => $user['role'],
+]);
 
-$db->prepare(
-  "INSERT INTO auth_audit (user_id,event,ip) VALUES (?,?,?)"
-)->execute([$user['id'],'login',$_SERVER['REMOTE_ADDR'] ?? '']);
+echo json_encode(['token' => $token]);
+EOF
 
-echo json_encode(['token'=>$token]);
-PHP
-
-# ============================================================
-# 5. Admin-only API Example
-# ============================================================
-
-cat > "$BACKEND/api/admin/users.php" <<'PHP'
+# ------------------------------------------------------------
+# Register API (admin only use)
+# ------------------------------------------------------------
+cat > api/auth/register.php <<'EOF'
 <?php
-require_once __DIR__ . '/../../core/Bootstrap.php';
-require_once __DIR__ . '/../../auth/Auth.php';
+declare(strict_types=1);
 
-Auth::requireRole('admin');
+use App\Auth\Password;
+use App\Auth\JwtService;
+use App\Modules\User\UserRepository;
+use App\Middleware\AuthMiddleware;
 
-$db = Database::conn();
-$rows = $db->query("SELECT id,email,role,status FROM users")->fetchAll();
-echo json_encode($rows);
-PHP
+require __DIR__ . '/../../core/Bootstrap.php';
 
-# ============================================================
-# 6. Seed Admin User (one-time)
-# ============================================================
+AuthMiddleware::require(['admin']);
 
-cat > "$BACKEND/auth/seed-admin.php" <<'PHP'
-<?php
-require_once __DIR__ . '/../core/Bootstrap.php';
+$data = json_decode(file_get_contents('php://input'), true);
 
-$db = Database::conn();
-$hash = password_hash('admin123', PASSWORD_BCRYPT);
+$email = $data['email'] ?? '';
+$password = $data['password'] ?? '';
+$role = $data['role'] ?? 'player';
 
-$db->prepare(
-  "INSERT IGNORE INTO users (email,password_hash,role)
-   VALUES ('admin@casino.local', ?, 'admin')"
-)->execute([$hash]);
+$hash = Password::hash($password);
+$id = UserRepository::create($email, $hash, $role);
 
-echo "admin seeded\n";
-PHP
+echo json_encode(['id' => $id]);
+EOF
 
-# ============================================================
-# 7. Documentation
-# ============================================================
-
-cat > "$BACKEND/auth/README.md" <<'MD'
-# Authentication System
-
-## Flow
-POST /api/login
- -> JWT (HS256)
- -> Authorization: Bearer <token>
-
-## Roles
-- player
-- admin
-
-## Security
-- bcrypt password
-- exp claim
-- audit log
-MD
-
-echo "✅ PHASE 20 COMPLETE – Auth / JWT / Role ready"
+# ------------------------------------------------------------
+# Done
+# ------------------------------------------------------------
+echo "✅ Auth system (JWT / Role) generated"
+echo "[PHASE 20] AUTH COMPLETE"

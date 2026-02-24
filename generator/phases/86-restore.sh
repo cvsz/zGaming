@@ -1,40 +1,129 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+IFS=$'\n\t'
 
-ARCHIVE="$1"
-[ -f "$ARCHIVE" ] || { echo "Archive not found"; exit 1; }
+echo "[RESTORE] Casino Platform"
 
-ROOT="/opt/casino-platform"
-TMP="/tmp/restore"
-
-mkdir -p "$TMP"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKUP_DIR="$ROOT/backups"
+TMP_RESTORE="$(mktemp -d)"
 
 # --------------------------------------------------
-# 1. Decrypt
+# 0. Resolve archive (arg or latest)
 # --------------------------------------------------
-openssl enc -d -aes-256-gcm \
-  -pbkdf2 \
+
+if [[ -n "${1:-}" ]]; then
+  ARCHIVE="$1"
+else
+  ARCHIVE="$(ls -1t "$BACKUP_DIR"/backup-*.tar.enc 2>/dev/null | head -n1 || true)"
+fi
+
+[[ -n "$ARCHIVE" && -f "$ARCHIVE" ]] || {
+  echo "❌ Backup archive not found"
+  exit 1
+}
+
+echo "ℹ️ Using archive: $ARCHIVE"
+
+# --------------------------------------------------
+# 1. Resolve ENV (backend preferred)
+# --------------------------------------------------
+
+ENV_FILE=""
+if [[ -f "$ROOT/backend/.env" ]]; then
+  ENV_FILE="$ROOT/backend/.env"
+elif [[ -f "$ROOT/.env" ]]; then
+  ENV_FILE="$ROOT/.env"
+else
+  echo "❌ No .env found"
+  exit 1
+fi
+
+echo "ℹ️ Using env file: $ENV_FILE"
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+
+: "${DB_USER:?missing}"
+: "${DB_PASS:?missing}"
+: "${DB_NAME:?missing}"
+
+# --------------------------------------------------
+# Resolve BACKUP_KEY (env > file > prompt)
+# --------------------------------------------------
+
+if [[ -n "${BACKUP_KEY:-}" ]]; then
+  :
+elif [[ -n "${BACKUP_KEY_FILE:-}" && -f "$BACKUP_KEY_FILE" ]]; then
+  BACKUP_KEY="$(<"$BACKUP_KEY_FILE")"
+  export BACKUP_KEY
+elif [[ -t 0 ]]; then
+  read -rsp "Enter BACKUP_KEY: " BACKUP_KEY
+  echo
+  export BACKUP_KEY
+else
+  echo "❌ BACKUP_KEY not provided"
+  exit 1
+fi
+
+# --------------------------------------------------
+# 2. Decrypt & Extract (portable)
+# --------------------------------------------------
+
+openssl enc -d -aes-256-cbc \
+  -pbkdf2 -iter 100000 \
   -pass env:BACKUP_KEY \
-  -in "$ARCHIVE" | tar xz -C "$TMP"
+  -in "$ARCHIVE" | \
+  tar -C "$TMP_RESTORE" -xzf -
 
 # --------------------------------------------------
-# 2. Restore Config
+# 3. Resolve DB container
 # --------------------------------------------------
-cp "$TMP/config/.env" "$ROOT/.env"
+
+DB_CONTAINER="$(
+  docker ps --format '{{.Names}}' | grep -E '(db|mysql)' | head -n1
+)"
+
+[[ -n "$DB_CONTAINER" ]] || {
+  echo "❌ Database container not found"
+  exit 1
+}
+
+echo "ℹ️ Using DB container: $DB_CONTAINER"
 
 # --------------------------------------------------
-# 3. Restore DB
+# 4. Restore Database
 # --------------------------------------------------
-docker compose up -d db
-sleep 10
 
-docker exec -i casino-db \
+[[ -f "$TMP_RESTORE/db/db.sql" ]] || {
+  echo "❌ db.sql missing in backup"
+  exit 1
+}
+
+docker exec -i "$DB_CONTAINER" \
   mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
-  < "$TMP/db/db.sql"
+  < "$TMP_RESTORE/db/db.sql"
 
 # --------------------------------------------------
-# 4. Restore Secrets
+# 5. Restore Config (non-destructive)
 # --------------------------------------------------
-cp -r "$TMP/keys" "$ROOT/secrets"
 
-echo "✅ Restore complete"
+if [[ -f "$TMP_RESTORE/config/.env" ]]; then
+  cp "$TMP_RESTORE/config/.env" "$ENV_FILE"
+fi
+
+# --------------------------------------------------
+# 6. Restore Secrets (optional)
+# --------------------------------------------------
+
+if [[ -d "$TMP_RESTORE/keys" ]]; then
+  mkdir -p "$ROOT/secrets"
+  cp -r "$TMP_RESTORE/keys/"* "$ROOT/secrets/"
+fi
+
+# --------------------------------------------------
+# 7. Cleanup
+# --------------------------------------------------
+
+rm -rf "$TMP_RESTORE"
+
+echo "✅ Restore complete from $ARCHIVE"

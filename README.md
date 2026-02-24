@@ -128,6 +128,15 @@ casino-platform/
 ./generator/meta-master.sh doctor
 ```
 
+โหมดการรันหลัก:
+
+```bash
+./generator/meta-master.sh all
+./generator/meta-master.sh final   # alias ของ all
+./generator/meta-master.sh list
+./generator/meta-master.sh phase 60-frontend.sh
+```
+
 ---
 
 ## 🚀 Quick Start (From Zero)

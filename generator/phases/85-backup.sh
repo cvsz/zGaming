@@ -1,4 +1,3 @@
-// generator/phases/85-backup.sh
 #!/usr/bin/env bash
 set -Eeuo pipefail
 IFS=$'\n\t'
@@ -29,22 +28,8 @@ source "$ENV_FILE"
 : "${DB_USER:?missing}"
 : "${DB_PASS:?missing}"
 : "${DB_NAME:?missing}"
+: "${BACKUP_KEY:?missing BACKUP_KEY}"
 
-# Resolve BACKUP_KEY (env > file > prompt)
-if [[ -n "${BACKUP_KEY:-}" ]]; then
-  :
-elif [[ -n "${BACKUP_KEY_FILE:-}" && -f "$BACKUP_KEY_FILE" ]]; then
-  BACKUP_KEY="$(<"$BACKUP_KEY_FILE")"
-  export BACKUP_KEY
-elif [[ -t 0 ]]; then
-  read -rsp "Enter BACKUP_KEY: " BACKUP_KEY; echo
-  export BACKUP_KEY
-else
-  echo "❌ BACKUP_KEY not provided"
-  exit 1
-fi
-
-# Resolve DB container
 DB_CONTAINER="$(docker ps --format '{{.Names}}' | grep -E '(db|mysql)' | head -n1)"
 [[ -n "$DB_CONTAINER" ]] || { echo "❌ DB container not found"; exit 1; }
 
@@ -75,7 +60,6 @@ tar -C "$TMP_BACKUP" -czf - . | \
   -pass env:BACKUP_KEY \
   > "$FINAL_BACKUP"
 
-[[ -s "$FINAL_BACKUP" ]] || { echo "❌ Backup empty"; exit 1; }
-
 rm -rf "$TMP_BACKUP"
+
 echo "✅ Backup complete: $FINAL_BACKUP"

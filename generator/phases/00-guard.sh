@@ -52,22 +52,33 @@ fi
 echo "✅ docker permission OK"
 
 # --------------------------------------------------
-# Directory structure (ROOT-based)
+# Directory structure
 # --------------------------------------------------
-REQUIRED_DIRS=(
-  "backend"
-  "frontend-player"
-  "frontend-admin"
-  "nginx"
-  "generator"
-)
+if [[ ! -d "$ROOT/generator" ]]; then
+  echo "❌ GUARD FAILED: missing directory $ROOT/generator"
+  exit 1
+fi
 
-for d in "${REQUIRED_DIRS[@]}"; do
-  if [[ ! -d "$ROOT/$d" ]]; then
-    echo "❌ GUARD FAILED: missing directory $ROOT/$d"
-    exit 1
-  fi
-done
+echo "✅ repository structure OK"
 
-echo "✅ directory structure OK"
+# Optional strict mode for pre-provisioned deployments.
+# Set MM_GUARD_STRICT_LAYOUT=1 to enforce that generated directories already exist.
+if [[ "${MM_GUARD_STRICT_LAYOUT:-0}" == "1" ]]; then
+  REQUIRED_DIRS=(
+    "backend"
+    "frontend-player"
+    "frontend-admin"
+    "nginx"
+  )
+
+  for d in "${REQUIRED_DIRS[@]}"; do
+    if [[ ! -d "$ROOT/$d" ]]; then
+      echo "❌ GUARD FAILED (strict): missing directory $ROOT/$d"
+      exit 1
+    fi
+  done
+
+  echo "✅ strict directory layout OK"
+fi
+
 echo "[PHASE 00] GUARD PASSED"

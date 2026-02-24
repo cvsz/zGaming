@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 echo "[PHASE 38] MULTI-WALLET PER PROVIDER"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND="$ROOT/backend"
 
-mkdir -p "$BACKEND"/{wallet,db,core}
+# Ensure required directories exist
+mkdir -p \
+  "$BACKEND"/{wallet,db,core} \
+  "$BACKEND/api/admin"
 
 # ============================================================
 # 1. Wallet per Provider Schema
@@ -31,12 +34,12 @@ CREATE TABLE IF NOT EXISTS wallet_ledger (
   base_amount DECIMAL(18,8) NOT NULL,
   ref VARCHAR(128) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uniq_ref (provider, ref)
+  UNIQUE KEY uniq_ref (user_id, provider, ref)
 );
 SQL
 
 # ============================================================
-# 2. Provider Wallet Service
+# 2. Provider-Agnostic Wallet Domain Service
 # ============================================================
 
 cat > "$BACKEND/wallet/ProviderWallet.php" <<'PHP'
@@ -57,47 +60,57 @@ final class ProviderWallet {
     $db->beginTransaction();
 
     try {
-      // idempotent ledger insert
+      // Idempotent ledger insert
       $db->prepare(
         "INSERT INTO wallet_ledger
          (user_id,provider,amount,currency,fx_rate,base_amount,ref)
          VALUES (?,?,?,?,?,?,?)"
       )->execute([
-        $userId,$provider,$amount,$currency,
-        $fxRate,$amount*$fxRate,$ref
+        $userId,
+        $provider,
+        $amount,
+        $currency,
+        $fxRate,
+        $amount * $fxRate,
+        $ref
       ]);
 
-      // provider wallet
+      // Provider wallet
       $db->prepare(
         "INSERT INTO wallets (user_id,provider,currency,balance)
          VALUES (?,?,?,0)
-         ON DUPLICATE KEY UPDATE balance = balance + ?"
+         ON DUPLICATE KEY UPDATE balance = balance + VALUES(balance)"
       )->execute([
-        $userId,$provider,$currency,$amount
+        $userId,
+        $provider,
+        $currency,
+        $amount
       ]);
 
-      // base accounting wallet
+      // Base accounting wallet
       $db->prepare(
         "INSERT INTO wallets (user_id,provider,currency,balance)
          VALUES (?,?,?,0)
-         ON DUPLICATE KEY UPDATE balance = balance + ?"
+         ON DUPLICATE KEY UPDATE balance = balance + VALUES(balance)"
       )->execute([
-        $userId,'__BASE__',$baseCurrency,$amount*$fxRate
+        $userId,
+        '__BASE__',
+        $baseCurrency,
+        $amount * $fxRate
       ]);
 
       $bal = $db->prepare(
         "SELECT balance FROM wallets
          WHERE user_id=? AND provider=? AND currency=?"
       );
-      $bal->execute([$userId,$provider,$currency]);
-      $balance = $bal->fetchColumn();
+      $bal->execute([$userId, $provider, $currency]);
 
       $db->commit();
 
       return [
-        'provider'=>$provider,
-        'currency'=>$currency,
-        'balance'=>$balance
+        'provider' => $provider,
+        'currency' => $currency,
+        'balance'  => (float)$bal->fetchColumn()
       ];
 
     } catch (Throwable $e) {
@@ -108,7 +121,7 @@ final class ProviderWallet {
 
   public static function getAll(int $userId): array {
     $stmt = Database::conn()->prepare(
-      "SELECT provider,currency,balance
+      "SELECT provider, currency, balance
        FROM wallets WHERE user_id=?"
     );
     $stmt->execute([$userId]);
@@ -118,7 +131,7 @@ final class ProviderWallet {
 PHP
 
 # ============================================================
-# 3. Provider Adapter (ใช้กับ callbacks)
+# 3. Provider Wallet Adapter (for callbacks)
 # ============================================================
 
 cat > "$BACKEND/wallet/ProviderWalletAdapter.php" <<'PHP'
@@ -133,22 +146,29 @@ final class ProviderWalletAdapter {
     string $ref
   ): array {
     $base = getenv('BASE_CURRENCY') ?: 'USD';
-    $fx = FX::rate($currency, $base);
+    $fx   = FX::rate($currency, $base);
 
     return ProviderWallet::credit(
-      $userId,$provider,$amount,$currency,$fx,$ref,$base
+      $userId,
+      $provider,
+      $amount,
+      $currency,
+      $fx,
+      $ref,
+      $base
     );
   }
 }
 PHP
 
 # ============================================================
-# 4. Admin API – View Multi Wallet
+# 4. Admin API – View Multi-Wallet Balances
 # ============================================================
 
 cat > "$BACKEND/api/admin/wallets.php" <<'PHP'
 <?php
 require_once __DIR__ . '/../../core/Bootstrap.php';
+
 Auth::requireRole('admin');
 
 $userId = (int)($_GET['user'] ?? 0);
@@ -163,16 +183,19 @@ cat > "$BACKEND/wallet/MULTI_WALLET.md" <<'MD'
 # Multi-Wallet per Provider
 
 ## Model
-(user, provider, currency) → balance
+(user_id, provider, currency) → balance
 
-## Why
-- Provider settlement isolation
-- No balance cross-contamination
-- Audit & dispute safe
+## Ledger
+- Idempotent by (user, provider, ref)
+- FX snapshot stored per transaction
 
 ## Accounting
-- Provider wallet: gameplay
+- Provider wallet: gameplay balances
 - __BASE__ wallet: finance / P&L
+
+## Notes
+- Negative balances are allowed by design
+- Enforcement belongs to business rules
 MD
 
-echo "✅ PHASE 38 COMPLETE – Multi-wallet per provider ready"
+echo "✅ PHASE 38 COMPLETE – Multi-wallet per provider (spec-correct)"

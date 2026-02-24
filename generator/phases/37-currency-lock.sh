@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 echo "[PHASE 37] CURRENCY LOCK PER SESSION"
 
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS game_sessions (
 SQL
 
 # ============================================================
-# 2. Currency Lock Service
+# 2. Currency Lock Domain Service
 # ============================================================
 
 cat > "$BACKEND/session/CurrencyLock.php" <<'PHP'
@@ -42,7 +42,6 @@ final class CurrencyLock {
   ): array {
     $db = Database::conn();
 
-    // resolve FX snapshot NOW
     $base = getenv('BASE_CURRENCY') ?: 'USD';
     $rate = FX::rate($currency, $base);
 
@@ -56,7 +55,7 @@ final class CurrencyLock {
     ]);
 
     return [
-      'session_id' => $db->lastInsertId(),
+      'session_id' => (int)$db->lastInsertId(),
       'currency'   => $currency,
       'fx_rate'    => $rate
     ];
@@ -96,33 +95,7 @@ final class CurrencyLock {
 PHP
 
 # ============================================================
-# 3. Provider Launch – Lock Currency
-# ============================================================
-
-cat > "$BACKEND/api/launch/pragmatic.php" <<'PHP'
-<?php
-require_once __DIR__ . '/../../core/Bootstrap.php';
-require_once __DIR__ . '/../../session/CurrencyLock.php';
-
-$user = Auth::user();
-$currency = $user['currency'] ?? 'USD'; // from user profile
-
-$lock = CurrencyLock::create(
-  $user['uid'],
-  'pragmatic',
-  'DEFAULT_GAME',
-  $currency
-);
-
-$url = "https://pragmatic.example/game?"
-     . "currency={$lock['currency']}"
-     . "&session={$lock['session_id']}";
-
-echo json_encode(['url'=>$url]);
-PHP
-
-# ============================================================
-# 4. Provider Callback – Enforce Lock
+# 3. Session Validator (Provider-Agnostic)
 # ============================================================
 
 cat > "$BACKEND/core/SessionValidator.php" <<'PHP'
@@ -142,40 +115,7 @@ final class SessionValidator {
 PHP
 
 # ============================================================
-# 5. Example: Pragmatic Callback (currency enforced)
-# ============================================================
-
-cat > "$BACKEND/api/callback/pragmatic.php" <<'PHP'
-<?php
-require_once __DIR__ . '/../../core/Bootstrap.php';
-require_once __DIR__ . '/../../core/SessionValidator.php';
-require_once __DIR__ . '/../../wallet/ProviderWalletAdapter.php';
-
-$data = $_POST;
-$userId   = (int)$data['user_id'];
-$currency = $data['currency'];
-$amount   = (float)$data['amount'];
-$txn      = $data['transaction_id'];
-
-try {
-  SessionValidator::enforce(
-    $userId,'pragmatic',$currency
-  );
-
-  $res = ProviderWalletAdapter::credit(
-    $userId,$amount,$currency,'pragmatic',$txn
-  );
-
-  echo json_encode(['status'=>'ok','balance'=>$res]);
-
-} catch (Throwable $e) {
-  http_response_code(400);
-  echo json_encode(['error'=>$e->getMessage()]);
-}
-PHP
-
-# ============================================================
-# 6. Documentation
+# 4. Documentation
 # ============================================================
 
 cat > "$BACKEND/session/README.md" <<'MD'
@@ -187,10 +127,14 @@ cat > "$BACKEND/session/README.md" <<'MD'
 - Callback currency must match
 - FX snapshot stored at session creation
 
+## Scope
+- Provider-agnostic
+- Provider launch & callbacks live in Phase 40+
+
 ## Why
 - Prevent mid-game currency switch
 - Prevent provider mismatch
 - Audit-safe
 MD
 
-echo "✅ PHASE 37 COMPLETE – Currency locked per session"
+echo "✅ PHASE 37 COMPLETE – Currency locked per session (provider-agnostic)"

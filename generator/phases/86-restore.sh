@@ -1,18 +1,19 @@
-// generator/phases/85-backup.sh
+// generator/phases/86-restore.sh
 #!/usr/bin/env bash
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-echo "[PHASE 85] BACKUP"
+echo "[PHASE 86] RESTORE"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TS="$(date +%Y%m%d-%H%M%S)"
-TMP_BACKUP="$(mktemp -d)"
-FINAL_BACKUP="$ROOT/backups/backup-$TS.tar.enc"
+BACKUP_DIR="$ROOT/backups"
+TMP_RESTORE="$(mktemp -d)"
 
-mkdir -p "$ROOT/backups"
+ARCHIVE="${1:-$(ls -1t "$BACKUP_DIR"/backup-*.tar.enc 2>/dev/null | head -n1 || true)}"
+[[ -n "$ARCHIVE" && -f "$ARCHIVE" ]] || { echo "❌ Backup archive not found"; exit 1; }
 
-# Resolve ENV (backend preferred)
+echo "ℹ️ Using archive: $ARCHIVE"
+
 if [[ -f "$ROOT/backend/.env" ]]; then
   ENV_FILE="$ROOT/backend/.env"
 elif [[ -f "$ROOT/.env" ]]; then
@@ -30,52 +31,28 @@ source "$ENV_FILE"
 : "${DB_PASS:?missing}"
 : "${DB_NAME:?missing}"
 
-# Resolve BACKUP_KEY (env > file > prompt)
-if [[ -n "${BACKUP_KEY:-}" ]]; then
-  :
-elif [[ -n "${BACKUP_KEY_FILE:-}" && -f "$BACKUP_KEY_FILE" ]]; then
-  BACKUP_KEY="$(<"$BACKUP_KEY_FILE")"
-  export BACKUP_KEY
-elif [[ -t 0 ]]; then
+if [[ -z "${BACKUP_KEY:-}" ]]; then
   read -rsp "Enter BACKUP_KEY: " BACKUP_KEY; echo
   export BACKUP_KEY
-else
-  echo "❌ BACKUP_KEY not provided"
-  exit 1
 fi
 
-# Resolve DB container
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
+  -pass env:BACKUP_KEY \
+  -in "$ARCHIVE" | tar -C "$TMP_RESTORE" -xzf -
+
 DB_CONTAINER="$(docker ps --format '{{.Names}}' | grep -E '(db|mysql)' | head -n1)"
 [[ -n "$DB_CONTAINER" ]] || { echo "❌ DB container not found"; exit 1; }
 
-mkdir -p "$TMP_BACKUP"/{db,config,keys,meta}
+docker exec -i "$DB_CONTAINER" \
+  mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+  < "$TMP_RESTORE/db/db.sql"
 
-docker exec "$DB_CONTAINER" \
-  mysqldump \
-    --single-transaction \
-    --routines \
-    --triggers \
-    --no-tablespaces \
-    -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
-  > "$TMP_BACKUP/db/db.sql"
+[[ -f "$TMP_RESTORE/config/.env" ]] && cp "$TMP_RESTORE/config/.env" "$ENV_FILE"
 
-cp "$ENV_FILE" "$TMP_BACKUP/config/.env"
-[[ -d "$ROOT/secrets" ]] && cp -r "$ROOT/secrets" "$TMP_BACKUP/keys"
+if compgen -G "$TMP_RESTORE/keys/*" > /dev/null; then
+  mkdir -p "$ROOT/secrets"
+  cp -r "$TMP_RESTORE/keys/"* "$ROOT/secrets/"
+fi
 
-cat > "$TMP_BACKUP/meta/manifest.json" <<EOF
-{
-  "timestamp": "$TS",
-  "git_commit": "$(git rev-parse HEAD 2>/dev/null || echo unknown)",
-  "type": "full"
-}
-EOF
-
-tar -C "$TMP_BACKUP" -czf - . | \
-  openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
-  -pass env:BACKUP_KEY \
-  > "$FINAL_BACKUP"
-
-[[ -s "$FINAL_BACKUP" ]] || { echo "❌ Backup empty"; exit 1; }
-
-rm -rf "$TMP_BACKUP"
-echo "✅ Backup complete: $FINAL_BACKUP"
+rm -rf "$TMP_RESTORE"
+echo "✅ Restore complete from $ARCHIVE"

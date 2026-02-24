@@ -1,4 +1,3 @@
-// generator/phases/86-restore.sh
 #!/usr/bin/env bash
 set -Eeuo pipefail
 IFS=$'\n\t'
@@ -14,6 +13,7 @@ ARCHIVE="${1:-$(ls -1t "$BACKUP_DIR"/backup-*.tar.enc 2>/dev/null | head -n1 || 
 
 echo "ℹ️ Using archive: $ARCHIVE"
 
+# Resolve ENV exactly like Phase 85
 if [[ -f "$ROOT/backend/.env" ]]; then
   ENV_FILE="$ROOT/backend/.env"
 elif [[ -f "$ROOT/.env" ]]; then
@@ -30,13 +30,10 @@ source "$ENV_FILE"
 : "${DB_USER:?missing}"
 : "${DB_PASS:?missing}"
 : "${DB_NAME:?missing}"
+: "${BACKUP_KEY:?missing BACKUP_KEY}"
 
-if [[ -z "${BACKUP_KEY:-}" ]]; then
-  read -rsp "Enter BACKUP_KEY: " BACKUP_KEY; echo
-  export BACKUP_KEY
-fi
-
-openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
+openssl enc -d -aes-256-cbc \
+  -pbkdf2 -iter 100000 \
   -pass env:BACKUP_KEY \
   -in "$ARCHIVE" | tar -C "$TMP_RESTORE" -xzf -
 
@@ -55,4 +52,5 @@ if compgen -G "$TMP_RESTORE/keys/*" > /dev/null; then
 fi
 
 rm -rf "$TMP_RESTORE"
+
 echo "✅ Restore complete from $ARCHIVE"

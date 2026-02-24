@@ -12,15 +12,23 @@ FINAL_BACKUP="$ROOT/backups/backup-$TS.tar.enc"
 mkdir -p "$ROOT/backups"
 
 # --------------------------------------------------
-# 0. Preconditions
+# 0. Resolve ENV (backend preferred)
 # --------------------------------------------------
 
-[[ -f "$ROOT/.env" ]] || {
-  echo "❌ .env missing — cannot perform backup"
-  exit 1
-}
+ENV_FILE=""
 
-source "$ROOT/.env"
+if [[ -f "$ROOT/backend/.env" ]]; then
+  ENV_FILE="$ROOT/backend/.env"
+elif [[ -f "$ROOT/.env" ]]; then
+  ENV_FILE="$ROOT/.env"
+else
+  echo "❌ No .env found (expected backend/.env or root .env)"
+  exit 1
+fi
+
+echo "ℹ️ Using env file: $ENV_FILE"
+# shellcheck disable=SC1090
+source "$ENV_FILE"
 
 : "${DB_USER:?missing}"
 : "${DB_PASS:?missing}"
@@ -60,10 +68,10 @@ docker exec "$DB_CONTAINER" \
 # 3. Application Config
 # --------------------------------------------------
 
-cp "$ROOT/.env" "$TMP_BACKUP/config/.env"
+cp "$ENV_FILE" "$TMP_BACKUP/config/.env"
 
 # --------------------------------------------------
-# 4. Secrets (optional, safe)
+# 4. Secrets (optional)
 # --------------------------------------------------
 
 if [[ -d "$ROOT/secrets" ]]; then

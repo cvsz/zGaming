@@ -2,14 +2,17 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-echo "[RESTORE] Casino Platform"
+echo "[PHASE 86] RESTORE"
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# --------------------------------------------------
+# Resolve ROOT correctly (generator-safe)
+# --------------------------------------------------
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKUP_DIR="$ROOT/backups"
 TMP_RESTORE="$(mktemp -d)"
 
 # --------------------------------------------------
-# 0. Resolve archive (arg or latest)
+# 0. Resolve backup archive (arg or latest)
 # --------------------------------------------------
 
 if [[ -n "${1:-}" ]]; then
@@ -35,7 +38,7 @@ if [[ -f "$ROOT/backend/.env" ]]; then
 elif [[ -f "$ROOT/.env" ]]; then
   ENV_FILE="$ROOT/.env"
 else
-  echo "❌ No .env found"
+  echo "❌ No .env found (expected backend/.env or root .env)"
   exit 1
 fi
 
@@ -65,8 +68,13 @@ else
   exit 1
 fi
 
+[[ -n "$BACKUP_KEY" ]] || {
+  echo "❌ BACKUP_KEY empty"
+  exit 1
+}
+
 # --------------------------------------------------
-# 2. Decrypt & Extract (portable)
+# 2. Decrypt & Extract (matches Phase 85 exactly)
 # --------------------------------------------------
 
 openssl enc -d -aes-256-cbc \
@@ -76,7 +84,7 @@ openssl enc -d -aes-256-cbc \
   tar -C "$TMP_RESTORE" -xzf -
 
 # --------------------------------------------------
-# 3. Resolve DB container
+# 3. Resolve DB container dynamically
 # --------------------------------------------------
 
 DB_CONTAINER="$(

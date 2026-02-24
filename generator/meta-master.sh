@@ -31,6 +31,9 @@ usage() {
 Usage:
   ./generator/meta-master.sh all        # run full pipeline (default)
   ./generator/meta-master.sh final      # alias of `all`
+  ./generator/meta-master.sh installer  # alias of `all`
+  ./generator/meta-master.sh upgrade    # re-run full pipeline safely
+  ./generator/meta-master.sh test       # run go-live test/report phase
   ./generator/meta-master.sh doctor     # run environment guard only
   ./generator/meta-master.sh phase <x>  # run one phase by filename
   ./generator/meta-master.sh list       # list phase execution order
@@ -126,8 +129,12 @@ main() {
   assert_layout
 
   case "$cmd" in
-    all|final)
+    all|final|installer|install|upgrade)
       run_all
+      ;;
+    test)
+      run_phase "00-guard.sh"
+      run_phase "110-runtest-report.sh"
       ;;
     doctor)
       run_phase "00-guard.sh"

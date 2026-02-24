@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 echo "[PHASE 80] SECURITY – OWASP / Rate Limit / WAF / Abuse Protection"
 
@@ -8,11 +8,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND="$ROOT/backend"
 NGINX="$ROOT/nginx"
 SEC="$ROOT/security"
+CALLBACK_DIR="$BACKEND/api/callback"
 
 mkdir -p "$SEC"/{nginx,php,docs}
 
 # ============================================================
-# 1. Backend PHP Security Hardening
+# 1. Backend Security Primitives
 # ============================================================
 
 cat > "$BACKEND/core/Security.php" <<'PHP'
@@ -27,12 +28,11 @@ final class Security {
     }
   }
 
-  public static function rateLimitKey(): string {
-    return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-  }
-
-  public static function forbidIfDebug(): void {
-    if (getenv('APP_ENV') === 'production' && getenv('APP_DEBUG') === 'true') {
+  public static function forbidDebugInProd(): void {
+    if (
+      getenv('APP_ENV') === 'production'
+      && getenv('APP_DEBUG') === 'true'
+    ) {
       http_response_code(500);
       echo json_encode(['error' => 'debug_not_allowed']);
       exit;
@@ -46,14 +46,6 @@ final class Security {
   }
 }
 PHP
-
-# Inject security into Bootstrap
-sed -i '/Bootstrap.php/a require_once __DIR__ . "/Security.php";' \
-  "$BACKEND/core/Bootstrap.php"
-
-# ============================================================
-# 2. Backend Abuse Guard (Replay / Payload size)
-# ============================================================
 
 cat > "$BACKEND/core/AbuseGuard.php" <<'PHP'
 <?php
@@ -78,21 +70,37 @@ final class AbuseGuard {
 PHP
 
 # ============================================================
-# 3. Harden Callback Endpoint
+# 2. Idempotent Bootstrap Injection
 # ============================================================
 
-sed -i '/Bootstrap.php/a require_once __DIR__ . "/../core/AbuseGuard.php";' \
-  "$BACKEND/api/callback.php"
+BOOTSTRAP="$BACKEND/core/Bootstrap.php"
 
-sed -i '/IpWhitelist::enforce/a AbuseGuard::requireMethod("POST"); AbuseGuard::maxBody();' \
-  "$BACKEND/api/callback.php"
+if ! grep -q "Security::secureHeaders" "$BOOTSTRAP"; then
+  sed -i '/^<?php/a \
+require_once __DIR__ . "/Security.php";\nSecurity::secureHeaders();\nSecurity::forbidDebugInProd();' \
+  "$BOOTSTRAP"
+fi
 
 # ============================================================
-# 4. NGINX WAF-lite (OWASP Top 10)
+# 3. Harden ALL Provider Callbacks (DYNAMIC)
+# ============================================================
+
+if [[ -d "$CALLBACK_DIR" ]]; then
+  for cb in "$CALLBACK_DIR"/*.php; do
+    [[ -f "$cb" ]] || continue
+
+    if ! grep -q "AbuseGuard::requireMethod" "$cb"; then
+      sed -i '1arequire_once __DIR__ . "/../../core/AbuseGuard.php";\nAbuseGuard::requireMethod("POST");\nAbuseGuard::maxBody();\n' "$cb"
+    fi
+  done
+fi
+
+# ============================================================
+# 4. NGINX WAF (PROJECT-LOCAL)
 # ============================================================
 
 cat > "$NGINX/waf.conf" <<'NGINX'
-# Block common attacks
+# Basic WAF rules (OWASP-lite)
 if ($request_uri ~* "(union.*select|select.*from|information_schema)") {
   return 403;
 }
@@ -101,29 +109,17 @@ if ($query_string ~* "(<|>|%3C|%3E|script|iframe)") {
   return 403;
 }
 
-# Block bad bots
-if ($http_user_agent ~* "(sqlmap|nikto|nmap|masscan|curl|wget)") {
+if ($http_user_agent ~* "(sqlmap|nikto|nmap|masscan)") {
   return 403;
 }
 NGINX
 
-# Include WAF into nginx.conf
-if ! grep -q waf.conf "$NGINX/nginx.conf"; then
-  sed -i '/http {/a \ \ include /etc/nginx/waf.conf;' "$NGINX/nginx.conf"
+if ! grep -q "waf.conf" "$NGINX/nginx.conf"; then
+  sed -i '/http {/a \ \ include waf.conf;' "$NGINX/nginx.conf"
 fi
 
 # ============================================================
-# 5. Advanced Rate Limits (Callback vs Player)
-# ============================================================
-
-sed -i '/limit_req_zone/a limit_req_zone $binary_remote_addr zone=callback:10m rate=5r/s;' \
-  "$NGINX/nginx.conf"
-
-sed -i '/location \/api\//a \ \ limit_req zone=callback burst=10 nodelay;' \
-  "$NGINX/nginx.conf"
-
-# ============================================================
-# 6. Secure Cookies (JWT)
+# 5. PHP Runtime Hardening
 # ============================================================
 
 cat > "$SEC/php/session.ini" <<'INI'
@@ -134,47 +130,45 @@ session.use_only_cookies = 1
 INI
 
 # ============================================================
-# 7. Fail-Fast on Weak Env
+# 6. Fail-Fast Env Check (Production Only)
 # ============================================================
 
 cat > "$SEC/env-check.sh" <<'BASH'
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 if [[ "${APP_ENV:-}" == "production" ]]; then
-  [[ -n "${JWT_SECRET:-}" ]] || exit 1
-  [[ -n "${PRAGMATIC_SECRET:-}" ]] || exit 1
-  [[ -n "${PGSOFT_SECRET:-}" ]] || exit 1
+  : "${JWT_SECRET:?missing}"
+  : "${PRAGMATIC_SECRET:?missing}"
+  : "${PGSOFT_SECRET:?missing}"
 fi
 BASH
 
 chmod +x "$SEC/env-check.sh"
 
 # ============================================================
-# 8. Security Documentation (Audit / Regulator)
+# 7. Documentation
 # ============================================================
 
 cat > "$SEC/docs/SECURITY.md" <<'MD'
 # Security Controls
 
 ## Backend
-- PDO prepared statements
-- Ledger-based wallet
-- Idempotency keys
-- Signature verification
-- IP whitelist
+- Strict JSON enforcement
+- Payload size limits
+- Method enforcement
+- Secure headers
+
+## Callbacks
+- POST-only
+- Size limited
+- Replay-safe
 
 ## Network
-- NGINX rate limit
-- WAF rules
-- Security headers
+- NGINX WAF rules
+- Rate limiting (nginx)
 
-## Compliance
-- Replay protection
-- Double callback safe
-- Payload size guard
-
-Aligned with OWASP Top 10.
+All controls are idempotent and re-runnable.
 MD
 
-echo "✅ PHASE 80 COMPLETE – Security hardened"
+echo "✅ PHASE 80 COMPLETE – Security hardened (spec-correct)"

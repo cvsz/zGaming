@@ -33,7 +33,29 @@ source "$ENV_FILE"
 : "${DB_USER:?missing}"
 : "${DB_PASS:?missing}"
 : "${DB_NAME:?missing}"
-: "${BACKUP_KEY:?missing BACKUP_KEY}"
+
+# --------------------------------------------------
+# Resolve BACKUP_KEY (env > file > prompt)
+# --------------------------------------------------
+
+if [[ -n "${BACKUP_KEY:-}" ]]; then
+  export BACKUP_KEY
+elif [[ -n "${BACKUP_KEY_FILE:-}" && -f "$BACKUP_KEY_FILE" ]]; then
+  BACKUP_KEY="$(<"$BACKUP_KEY_FILE")"
+  export BACKUP_KEY
+elif [[ -t 0 ]]; then
+  read -rsp "Enter BACKUP_KEY: " BACKUP_KEY
+  echo
+  export BACKUP_KEY
+else
+  echo "❌ BACKUP_KEY not provided (env, file, or prompt)"
+  exit 1
+fi
+
+[[ -n "$BACKUP_KEY" ]] || {
+  echo "❌ BACKUP_KEY empty"
+  exit 1
+}
 
 # --------------------------------------------------
 # 1. Resolve DB Container (dynamic)
@@ -53,7 +75,7 @@ echo "ℹ️ Using DB container: $DB_CONTAINER"
 mkdir -p "$TMP_BACKUP"/{db,config,keys,meta}
 
 # --------------------------------------------------
-# 2. Database Backup (consistent)
+# 2. Database Backup (least-privilege safe)
 # --------------------------------------------------
 
 docker exec "$DB_CONTAINER" \
@@ -61,6 +83,7 @@ docker exec "$DB_CONTAINER" \
     --single-transaction \
     --routines \
     --triggers \
+    --no-tablespaces \
     -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
   > "$TMP_BACKUP/db/db.sql"
 
@@ -92,12 +115,12 @@ cat > "$TMP_BACKUP/meta/manifest.json" <<EOF
 EOF
 
 # --------------------------------------------------
-# 6. Encrypt (atomic)
+# 6. Encrypt (portable & strong)
 # --------------------------------------------------
 
 tar -C "$TMP_BACKUP" -czf - . | \
-  openssl enc -aes-256-gcm \
-    -salt -pbkdf2 \
+  openssl enc -aes-256-cbc \
+    -salt -pbkdf2 -iter 100000 \
     -pass env:BACKUP_KEY \
   > "$FINAL_BACKUP"
 

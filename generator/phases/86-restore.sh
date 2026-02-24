@@ -1,44 +1,24 @@
+// generator/phases/85-backup.sh
 #!/usr/bin/env bash
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-echo "[PHASE 86] RESTORE"
+echo "[PHASE 85] BACKUP"
 
-# --------------------------------------------------
-# Resolve ROOT correctly (generator-safe)
-# --------------------------------------------------
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BACKUP_DIR="$ROOT/backups"
-TMP_RESTORE="$(mktemp -d)"
+TS="$(date +%Y%m%d-%H%M%S)"
+TMP_BACKUP="$(mktemp -d)"
+FINAL_BACKUP="$ROOT/backups/backup-$TS.tar.enc"
 
-# --------------------------------------------------
-# 0. Resolve backup archive (arg or latest)
-# --------------------------------------------------
+mkdir -p "$ROOT/backups"
 
-if [[ -n "${1:-}" ]]; then
-  ARCHIVE="$1"
-else
-  ARCHIVE="$(ls -1t "$BACKUP_DIR"/backup-*.tar.enc 2>/dev/null | head -n1 || true)"
-fi
-
-[[ -n "$ARCHIVE" && -f "$ARCHIVE" ]] || {
-  echo "❌ Backup archive not found"
-  exit 1
-}
-
-echo "ℹ️ Using archive: $ARCHIVE"
-
-# --------------------------------------------------
-# 1. Resolve ENV (backend preferred)
-# --------------------------------------------------
-
-ENV_FILE=""
+# Resolve ENV (backend preferred)
 if [[ -f "$ROOT/backend/.env" ]]; then
   ENV_FILE="$ROOT/backend/.env"
 elif [[ -f "$ROOT/.env" ]]; then
   ENV_FILE="$ROOT/.env"
 else
-  echo "❌ No .env found (expected backend/.env or root .env)"
+  echo "❌ No .env found"
   exit 1
 fi
 
@@ -50,88 +30,52 @@ source "$ENV_FILE"
 : "${DB_PASS:?missing}"
 : "${DB_NAME:?missing}"
 
-# --------------------------------------------------
 # Resolve BACKUP_KEY (env > file > prompt)
-# --------------------------------------------------
-
 if [[ -n "${BACKUP_KEY:-}" ]]; then
   :
 elif [[ -n "${BACKUP_KEY_FILE:-}" && -f "$BACKUP_KEY_FILE" ]]; then
   BACKUP_KEY="$(<"$BACKUP_KEY_FILE")"
   export BACKUP_KEY
 elif [[ -t 0 ]]; then
-  read -rsp "Enter BACKUP_KEY: " BACKUP_KEY
-  echo
+  read -rsp "Enter BACKUP_KEY: " BACKUP_KEY; echo
   export BACKUP_KEY
 else
   echo "❌ BACKUP_KEY not provided"
   exit 1
 fi
 
-[[ -n "$BACKUP_KEY" ]] || {
-  echo "❌ BACKUP_KEY empty"
-  exit 1
+# Resolve DB container
+DB_CONTAINER="$(docker ps --format '{{.Names}}' | grep -E '(db|mysql)' | head -n1)"
+[[ -n "$DB_CONTAINER" ]] || { echo "❌ DB container not found"; exit 1; }
+
+mkdir -p "$TMP_BACKUP"/{db,config,keys,meta}
+
+docker exec "$DB_CONTAINER" \
+  mysqldump \
+    --single-transaction \
+    --routines \
+    --triggers \
+    --no-tablespaces \
+    -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+  > "$TMP_BACKUP/db/db.sql"
+
+cp "$ENV_FILE" "$TMP_BACKUP/config/.env"
+[[ -d "$ROOT/secrets" ]] && cp -r "$ROOT/secrets" "$TMP_BACKUP/keys"
+
+cat > "$TMP_BACKUP/meta/manifest.json" <<EOF
+{
+  "timestamp": "$TS",
+  "git_commit": "$(git rev-parse HEAD 2>/dev/null || echo unknown)",
+  "type": "full"
 }
+EOF
 
-# --------------------------------------------------
-# 2. Decrypt & Extract (matches Phase 85 exactly)
-# --------------------------------------------------
-
-openssl enc -d -aes-256-cbc \
-  -pbkdf2 -iter 100000 \
+tar -C "$TMP_BACKUP" -czf - . | \
+  openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
   -pass env:BACKUP_KEY \
-  -in "$ARCHIVE" | \
-  tar -C "$TMP_RESTORE" -xzf -
+  > "$FINAL_BACKUP"
 
-# --------------------------------------------------
-# 3. Resolve DB container dynamically
-# --------------------------------------------------
+[[ -s "$FINAL_BACKUP" ]] || { echo "❌ Backup empty"; exit 1; }
 
-DB_CONTAINER="$(
-  docker ps --format '{{.Names}}' | grep -E '(db|mysql)' | head -n1
-)"
-
-[[ -n "$DB_CONTAINER" ]] || {
-  echo "❌ Database container not found"
-  exit 1
-}
-
-echo "ℹ️ Using DB container: $DB_CONTAINER"
-
-# --------------------------------------------------
-# 4. Restore Database
-# --------------------------------------------------
-
-[[ -f "$TMP_RESTORE/db/db.sql" ]] || {
-  echo "❌ db.sql missing in backup"
-  exit 1
-}
-
-docker exec -i "$DB_CONTAINER" \
-  mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
-  < "$TMP_RESTORE/db/db.sql"
-
-# --------------------------------------------------
-# 5. Restore Config (non-destructive)
-# --------------------------------------------------
-
-if [[ -f "$TMP_RESTORE/config/.env" ]]; then
-  cp "$TMP_RESTORE/config/.env" "$ENV_FILE"
-fi
-
-# --------------------------------------------------
-# 6. Restore Secrets (optional)
-# --------------------------------------------------
-
-if [[ -d "$TMP_RESTORE/keys" ]]; then
-  mkdir -p "$ROOT/secrets"
-  cp -r "$TMP_RESTORE/keys/"* "$ROOT/secrets/"
-fi
-
-# --------------------------------------------------
-# 7. Cleanup
-# --------------------------------------------------
-
-rm -rf "$TMP_RESTORE"
-
-echo "✅ Restore complete from $ARCHIVE"
+rm -rf "$TMP_BACKUP"
+echo "✅ Backup complete: $FINAL_BACKUP"

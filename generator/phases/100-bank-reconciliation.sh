@@ -1,13 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 echo "[PHASE 100] BANK RECONCILIATION"
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="$ROOT/reports/bank-recon-$(date +%F)"
+BACKEND_ENV="$ROOT/backend/.env"
+
 mkdir -p "$OUT"
 
-# 1. Export ledger
-docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -e "
+if [[ ! -f "$BACKEND_ENV" ]]; then
+  echo "❌ Missing backend env file: $BACKEND_ENV"
+  exit 1
+fi
+
+set -a
+# shellcheck disable=SC1090
+source "$BACKEND_ENV"
+set +a
+
+DB_USER="${DB_USER:-casino}"
+DB_PASS="${DB_PASS:-casino}"
+DB_NAME="${DB_NAME:-casino}"
+DB_CONTAINER="${DB_CONTAINER:-casino-db}"
+
+for cmd in docker jq zip; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "❌ Required command not found: $cmd"
+    exit 1
+  fi
+done
+
+if ! docker ps --format '{{.Names}}' | rg -x "$DB_CONTAINER" >/dev/null 2>&1; then
+  echo "❌ Database container not running: $DB_CONTAINER"
+  exit 1
+fi
+
+# 1. Export PSP ledger
+
+docker exec "$DB_CONTAINER" mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "
 SELECT
  user_id,
  direction,
@@ -19,8 +50,9 @@ FROM psp_txn
 WHERE status='success';
 " > "$OUT/psp_ledger.csv"
 
-# 2. Export settlement
-docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -e "
+# 2. Export provider settlement
+
+docker exec "$DB_CONTAINER" mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "
 SELECT
  provider,
  date,
@@ -32,64 +64,19 @@ WHERE status='paid';
 " > "$OUT/provider_settlement.csv"
 
 # 3. Reconciliation summary
-docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -e "
+
+docker exec "$DB_CONTAINER" mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "
 SELECT
- SUM(amount) total_psp
+ SUM(amount) AS total_psp
 FROM psp_txn
 WHERE status='success';
 " > "$OUT/summary.txt"
 
 # 4. Manifest
 jq -n \
- '{type:"bank-reconciliation",date:now,compliant:true}' \
+ --arg date "$(date -Iseconds)" \
+ '{type:"bank-reconciliation",date:$date,compliant:true}' \
  > "$OUT/manifest.json"
 
-zip -r "$OUT.zip" "$OUT"
-echo "✅ Bank reconciliation ready: $OUT.zip"#!/usr/bin/env bash
-set -euo pipefail
-echo "[PHASE 100] BANK RECONCILIATION"
-
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-OUT="$ROOT/reports/bank-recon-$(date +%F)"
-mkdir -p "$OUT"
-
-# 1. Export ledger
-docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -e "
-SELECT
- user_id,
- direction,
- amount,
- currency,
- ref,
- status
-FROM psp_txn
-WHERE status='success';
-" > "$OUT/psp_ledger.csv"
-
-# 2. Export settlement
-docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -e "
-SELECT
- provider,
- date,
- net,
- currency,
- status
-FROM provider_settlement
-WHERE status='paid';
-" > "$OUT/provider_settlement.csv"
-
-# 3. Reconciliation summary
-docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -e "
-SELECT
- SUM(amount) total_psp
-FROM psp_txn
-WHERE status='success';
-" > "$OUT/summary.txt"
-
-# 4. Manifest
-jq -n \
- '{type:"bank-reconciliation",date:now,compliant:true}' \
- > "$OUT/manifest.json"
-
-zip -r "$OUT.zip" "$OUT"
+zip -rq "$OUT.zip" "$OUT"
 echo "✅ Bank reconciliation ready: $OUT.zip"

@@ -2,9 +2,10 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-echo "=== zGaming START v3.4 (REPO-AWARE) ==="
+echo "=== zGaming START v3.5 (REPO-AWARE) ==="
 
-BASE="/home/zeazdev/zGaming"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE="$SCRIPT_DIR"
 
 # --------------------------------------------------
 # Resolve actual repo root
@@ -15,6 +16,9 @@ if [[ -d "$BASE/zGaming/generator" ]]; then
 elif [[ -d "$BASE/generator" ]]; then
   APP_DIR="$BASE"
   MODE="repo-root"
+elif [[ -d "$(pwd)/generator" ]]; then
+  APP_DIR="$(pwd)"
+  MODE="cwd"
 else
   echo "❌ Cannot locate zGaming repository (generator missing)"
   exit 1
@@ -26,7 +30,10 @@ cd "$APP_DIR"
 # --------------------------------------------------
 # Docker pre-flight
 # --------------------------------------------------
-command -v docker >/dev/null || { echo "❌ Docker not installed"; exit 1; }
+for bin in docker curl openssl; do
+  command -v "$bin" >/dev/null || { echo "❌ Required binary missing: $bin"; exit 1; }
+done
+
 docker info >/dev/null 2>&1 || {
   echo "❌ Docker permission denied"
   echo "👉 Add user to docker group or run with sudo"

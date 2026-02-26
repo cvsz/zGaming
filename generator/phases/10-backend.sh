@@ -3,15 +3,9 @@ ZG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ZG_ROOT/lib/bash_guard.sh"
 
 set -Eeuo pipefail
-IFS=$'
-	'
-
-#!/usr/bin/env bash
 # ============================================================
 # PHASE 10 – BACKEND CORE (API / DB / BASE STRUCTURE)
 # ============================================================
-
-set -euo pipefail
 
 echo "[PHASE 10] BACKEND – Core API & Database Setup"
 

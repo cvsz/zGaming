@@ -87,10 +87,10 @@ if [[ ! -f "composer.json" ]]; then
   cat > composer.json <<'EOF'
 {
   "require": {
-    "php": "^8.2",
-    "firebase/php-jwt": "^6.10",
-    "ramsey/uuid": "^4.7",
-    "monolog/monolog": "^3.6"
+    "php": "^8.3",
+    "firebase/php-jwt": "^6.11",
+    "ramsey/uuid": "^4.9",
+    "monolog/monolog": "^3.9"
   },
   "autoload": {
     "psr-4": {

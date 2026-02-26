@@ -103,7 +103,7 @@ zGaming/
 ขั้นต่ำ:
 
 * Linux / WSL2 (Ubuntu 22.04+)
-* Docker ≥ 24
+* Docker ≥ 25
 * Docker Compose v2
 * OpenSSL
 * Bash ≥ 5

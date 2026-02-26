@@ -11,10 +11,34 @@ set -euo pipefail
 echo "[PHASE 104] BANK SETTLEMENT AUTOMATION"
 
 DATE="${1:-$(date -d yesterday +%F)}"
-OUT="reports/bank-settlement-$DATE"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+OUT="$ROOT/reports/bank-settlement-$DATE"
+BACKEND_ENV="$ROOT/backend/.env"
 mkdir -p "$OUT"
 
-docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -e "
+if [[ ! -f "$BACKEND_ENV" ]]; then
+  echo "❌ Missing backend env file: $BACKEND_ENV"
+  exit 1
+fi
+
+set -a
+# shellcheck disable=SC1090
+source "$BACKEND_ENV"
+set +a
+
+DB_USER="${DB_USER:-casino}"
+DB_PASS="${DB_PASS:-casino}"
+DB_NAME="${DB_NAME:-casino}"
+DB_CONTAINER="${DB_CONTAINER:-casino-db}"
+
+for cmd in docker zip; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "❌ Required command not found: $cmd"
+    exit 1
+  fi
+done
+
+docker exec "$DB_CONTAINER" mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "
 SELECT provider, SUM(net) net_amount
 FROM provider_settlement
 WHERE date='$DATE' AND status='open'

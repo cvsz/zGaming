@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: casino-db
+    environment:
+      MYSQL_DATABASE: casino
+      MYSQL_USER: casino
+      MYSQL_PASSWORD: ${DB_PASS}
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - db-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+  backend:
+    image: php:8.1-apache
+    container_name: casino-backend
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/var/www/html
+    ports:
+      - "8080:80"
+
+  nginx:
+    image: nginx:stable
+    container_name: casino-nginx
+    depends_on:
+      - backend
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+
+volumes:
+  db-data:

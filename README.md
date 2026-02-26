@@ -1,17 +1,3 @@
-ได้ครับ ✅
-ด้านล่างคือ **`README.md` เวอร์ชันเต็ม (FINAL / Production / Regulator-ready / Engineer-grade)**
-ไฟล์นี้ออกแบบมาให้:
-
-* Dev ใหม่อ่านแล้ว **run ได้**
-* Ops อ่านแล้ว **deploy ได้**
-* Auditor / Investor อ่านแล้ว **เชื่อถือได้**
-
-> 🗣 คำอธิบาย: ภาษาไทย
-> 💻 คำสั่ง / โค้ด / path: English
-> 🎯 Scope: **End-to-End Casino Platform (Meta-Master)**
-
----
-
 # 🎰 Meta-Master Casino Platform
 
 **Production-grade Casino Platform Generator**

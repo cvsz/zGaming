@@ -6,17 +6,12 @@ export MM_VERSION
 ZG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$ZG_ROOT/lib/bash_guard.sh"
 
-set -Eeuo pipefail
-IFS=$'
-	'
-
-#!/usr/bin/env bash
 # ============================================================
 # META-MASTER CASINO PLATFORM
 # FINAL / PRODUCTION / REGULATOR-GRADE
 # ============================================================
 
-set -euo pipefail
+set -Eeuo pipefail
 
 # ------------------------------------------------------------
 # Resolve absolute paths (RUN FROM ANYWHERE)

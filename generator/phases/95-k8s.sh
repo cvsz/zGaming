@@ -48,7 +48,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: casino-platform-backend:latest
+          image: zGaming-backend:latest
           ports:
             - containerPort: 9000
           envFrom:
@@ -205,7 +205,7 @@ done
 
 cat > "$K8S/helm/casino/Chart.yaml" <<'YAML'
 apiVersion: v2
-name: casino-platform
+name: zGaming
 description: Casino Platform – Production Helm Chart
 type: application
 version: 1.0.0
@@ -215,7 +215,7 @@ YAML
 cat > "$K8S/helm/casino/values.yaml" <<'YAML'
 backend:
   replicas: 2
-  image: casino-platform-backend:latest
+  image: zGaming-backend:latest
 
 nginx:
   image: nginx:alpine
@@ -234,7 +234,7 @@ cat > "$K8S/helm/casino/templates/backend.yaml" <<'YAML'
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "casino-platform.fullname" . }}-backend
+  name: {{ include "zGaming.fullname" . }}-backend
 spec:
   replicas: {{ .Values.backend.replicas }}
   selector:

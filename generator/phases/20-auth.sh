@@ -42,7 +42,7 @@ if ! grep -q "^JWT_SECRET=" .env; then
 
 # JWT CONFIG
 JWT_SECRET=change-me-super-secret
-JWT_ISSUER=casino-platform
+JWT_ISSUER=zGaming
 JWT_AUDIENCE=casino-clients
 JWT_TTL=3600
 EOF

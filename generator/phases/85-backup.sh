@@ -1,65 +1,76 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-IFS=$'\n\t'
 
 echo "[PHASE 85] BACKUP"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+BACKUP_DIR="$ROOT/backups"
 TS="$(date +%Y%m%d-%H%M%S)"
-TMP_BACKUP="$(mktemp -d)"
-FINAL_BACKUP="$ROOT/backups/backup-$TS.tar.enc"
+OUT="$BACKUP_DIR/backup-$TS"
+DB_CONTAINER="casino-db"
 
-mkdir -p "$ROOT/backups"
+mkdir -p "$BACKUP_DIR"
 
-# Resolve ENV (backend preferred)
-if [[ -f "$ROOT/backend/.env" ]]; then
-  ENV_FILE="$ROOT/backend/.env"
-elif [[ -f "$ROOT/.env" ]]; then
-  ENV_FILE="$ROOT/.env"
-else
-  echo "❌ No .env found"
+# --------------------------------------------------
+# Load env
+# --------------------------------------------------
+ENV_FILE="$ROOT/backend/.env"
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "❌ backend/.env missing"
   exit 1
 fi
 
-echo "ℹ️ Using env file: $ENV_FILE"
 # shellcheck disable=SC1090
 source "$ENV_FILE"
+export BACKUP_KEY DB_PASS
 
-: "${DB_USER:?missing}"
-: "${DB_PASS:?missing}"
-: "${DB_NAME:?missing}"
-: "${BACKUP_KEY:?missing BACKUP_KEY}"
+[[ -n "${BACKUP_KEY:-}" ]] || { echo "❌ BACKUP_KEY missing"; exit 1; }
 
-DB_CONTAINER="$(docker ps --format '{{.Names}}' | grep -E '(db|mysql)' | head -n1)"
-[[ -n "$DB_CONTAINER" ]] || { echo "❌ DB container not found"; exit 1; }
+# --------------------------------------------------
+# Wait for MySQL
+# --------------------------------------------------
+echo "⏳ Waiting for MySQL in container $DB_CONTAINER"
+for i in {1..30}; do
+  if docker exec "$DB_CONTAINER" mysqladmin ping -u"$DB_USER" -p"$DB_PASS" --silent; then
+    break
+  fi
+  sleep 2
+done
 
-mkdir -p "$TMP_BACKUP"/{db,config,keys,meta}
+# --------------------------------------------------
+# Dump DB (container-safe)
+# --------------------------------------------------
+TMP="$(mktemp -d)"
+mkdir -p "$TMP/db" "$TMP/config" "$TMP/meta"
 
-docker exec "$DB_CONTAINER" \
-  mysqldump \
-    --single-transaction \
-    --routines \
-    --triggers \
-    --no-tablespaces \
-    -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
-  > "$TMP_BACKUP/db/db.sql"
+echo "📦 Dumping database"
+docker exec "$DB_CONTAINER" mysqldump \
+  --single-transaction \
+  --no-tablespaces \
+  -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+  > "$TMP/db/db.sql"
 
-cp "$ENV_FILE" "$TMP_BACKUP/config/.env"
-[[ -d "$ROOT/secrets" ]] && cp -r "$ROOT/secrets" "$TMP_BACKUP/keys"
+# --------------------------------------------------
+# Config + metadata
+# --------------------------------------------------
+cp "$ENV_FILE" "$TMP/config/.env"
 
-cat > "$TMP_BACKUP/meta/manifest.json" <<EOF
+cat > "$TMP/meta/manifest.json" <<EOF
 {
   "timestamp": "$TS",
-  "git_commit": "$(git rev-parse HEAD 2>/dev/null || echo unknown)",
-  "type": "full"
+  "type": "full",
+  "db": "$DB_NAME"
 }
 EOF
 
-tar -C "$TMP_BACKUP" -czf - . | \
-  openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+# --------------------------------------------------
+# Encrypt
+# --------------------------------------------------
+tar czf - -C "$TMP" . | \
+  openssl enc -aes-256-cbc -pbkdf2 \
   -pass env:BACKUP_KEY \
-  > "$FINAL_BACKUP"
+  > "$OUT.tar.enc"
 
-rm -rf "$TMP_BACKUP"
+rm -rf "$TMP"
 
-echo "✅ Backup complete: $FINAL_BACKUP"
+echo "✅ Backup complete: $OUT.tar.enc"

@@ -1,4 +1,16 @@
 #!/usr/bin/env bash
+MM_VERSION="$(cat "$(dirname "$0")/VERSION")"
+echo "Meta-Master version: $MM_VERSION"
+export MM_VERSION
+
+ZG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$ZG_ROOT/lib/bash_guard.sh"
+
+set -Eeuo pipefail
+IFS=$'
+	'
+
+#!/usr/bin/env bash
 # ============================================================
 # META-MASTER CASINO PLATFORM
 # FINAL / PRODUCTION / REGULATOR-GRADE

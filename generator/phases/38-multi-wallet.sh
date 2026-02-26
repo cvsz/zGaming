@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+ZG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ZG_ROOT/lib/bash_guard.sh"
+
 set -Eeuo pipefail
 
 echo "[PHASE 38] MULTI-WALLET PER PROVIDER"

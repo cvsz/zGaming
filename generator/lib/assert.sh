@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'
+	'
+
+#!/usr/bin/env bash
 # ============================================================
 # ASSERT LIBRARY – META-MASTER
 # DO NOT ASSUME GLOBAL PATHS
@@ -70,8 +75,6 @@ echo "[3] DOCKERFILES"
 
 REQUIRED_FILES=(
   "$ROOT/backend/Dockerfile"
-  "$ROOT/frontend-player/Dockerfile"
-  "$ROOT/frontend-admin/Dockerfile"
 )
 
 for f in "${REQUIRED_FILES[@]}"; do

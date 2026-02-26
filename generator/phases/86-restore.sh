@@ -1,56 +1,71 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-IFS=$'\n\t'
 
 echo "[PHASE 86] RESTORE"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKUP_DIR="$ROOT/backups"
-TMP_RESTORE="$(mktemp -d)"
+DB_CONTAINER="casino-db"
 
-ARCHIVE="${1:-$(ls -1t "$BACKUP_DIR"/backup-*.tar.enc 2>/dev/null | head -n1 || true)}"
-[[ -n "$ARCHIVE" && -f "$ARCHIVE" ]] || { echo "❌ Backup archive not found"; exit 1; }
+# --------------------------------------------------
+# Resolve archive
+# --------------------------------------------------
+ARCHIVE="${1:-}"
+if [[ -z "$ARCHIVE" ]]; then
+  ARCHIVE="$(ls -t "$BACKUP_DIR"/backup-*.tar.enc 2>/dev/null | head -1 || true)"
+fi
+
+[[ -f "$ARCHIVE" ]] || { echo "❌ Backup archive not found"; exit 1; }
 
 echo "ℹ️ Using archive: $ARCHIVE"
 
-# Resolve ENV exactly like Phase 85
-if [[ -f "$ROOT/backend/.env" ]]; then
-  ENV_FILE="$ROOT/backend/.env"
-elif [[ -f "$ROOT/.env" ]]; then
-  ENV_FILE="$ROOT/.env"
-else
-  echo "❌ No .env found"
-  exit 1
-fi
+# --------------------------------------------------
+# Load env
+# --------------------------------------------------
+ENV_FILE="$ROOT/backend/.env"
+[[ -f "$ENV_FILE" ]] || { echo "❌ backend/.env missing"; exit 1; }
 
-echo "ℹ️ Using env file: $ENV_FILE"
 # shellcheck disable=SC1090
 source "$ENV_FILE"
+export BACKUP_KEY DB_PASS
 
-: "${DB_USER:?missing}"
-: "${DB_PASS:?missing}"
-: "${DB_NAME:?missing}"
-: "${BACKUP_KEY:?missing BACKUP_KEY}"
+[[ -n "${BACKUP_KEY:-}" ]] || { echo "❌ BACKUP_KEY missing"; exit 1; }
 
-openssl enc -d -aes-256-cbc \
-  -pbkdf2 -iter 100000 \
+# --------------------------------------------------
+# Temp dir
+# --------------------------------------------------
+TMP="$(mktemp -d)"
+
+# --------------------------------------------------
+# Decrypt + extract (MATCH PHASE 85)
+# --------------------------------------------------
+openssl enc -d -aes-256-cbc -pbkdf2 \
   -pass env:BACKUP_KEY \
-  -in "$ARCHIVE" | tar -C "$TMP_RESTORE" -xzf -
+  -in "$ARCHIVE" | tar xz -C "$TMP"
 
-DB_CONTAINER="$(docker ps --format '{{.Names}}' | grep -E '(db|mysql)' | head -n1)"
-[[ -n "$DB_CONTAINER" ]] || { echo "❌ DB container not found"; exit 1; }
+# --------------------------------------------------
+# Restore config
+# --------------------------------------------------
+cp "$TMP/config/.env" "$ENV_FILE"
 
+# --------------------------------------------------
+# Wait for MySQL
+# --------------------------------------------------
+echo "⏳ Waiting for MySQL"
+for i in {1..30}; do
+  if docker exec "$DB_CONTAINER" mysqladmin ping -u"$DB_USER" -p"$DB_PASS" --silent; then
+    break
+  fi
+  sleep 2
+done
+
+# --------------------------------------------------
+# Restore DB
+# --------------------------------------------------
 docker exec -i "$DB_CONTAINER" \
   mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
-  < "$TMP_RESTORE/db/db.sql"
+  < "$TMP/db/db.sql"
 
-[[ -f "$TMP_RESTORE/config/.env" ]] && cp "$TMP_RESTORE/config/.env" "$ENV_FILE"
-
-if compgen -G "$TMP_RESTORE/keys/*" > /dev/null; then
-  mkdir -p "$ROOT/secrets"
-  cp -r "$TMP_RESTORE/keys/"* "$ROOT/secrets/"
-fi
-
-rm -rf "$TMP_RESTORE"
+rm -rf "$TMP"
 
 echo "✅ Restore complete from $ARCHIVE"

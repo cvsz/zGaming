@@ -1,30 +1,54 @@
-// generator/phases/87-dr-test.sh
 #!/usr/bin/env bash
 set -Eeuo pipefail
-IFS=$'\n\t'
 
-echo "[PHASE 87] DISASTER RECOVERY TEST"
+echo "[PHASE 87] DISASTER RECOVERY TEST (FINAL)"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKUP_DIR="$ROOT/backups"
+COMPOSE="docker compose"
 
-LATEST="$(ls -1t "$BACKUP_DIR"/backup-*.tar.enc 2>/dev/null | head -n1 || true)"
-[[ -n "$LATEST" ]] || { echo "❌ No backup found"; exit 1; }
+# --------------------------------------------------
+# Resolve latest backup
+# --------------------------------------------------
+ARCHIVE="$(ls -t "$BACKUP_DIR"/backup-*.tar.enc 2>/dev/null | head -1 || true)"
+[[ -f "$ARCHIVE" ]] || { echo "❌ No backup found"; exit 1; }
 
-docker compose stop backend nginx || true
-docker compose up -d db
+echo "ℹ️ Using backup: $ARCHIVE"
 
-"$ROOT/generator/meta-master.sh" phase 86-restore.sh "$LATEST"
+# --------------------------------------------------
+# Stop everything
+# --------------------------------------------------
+echo "🛑 Stopping all containers"
+$COMPOSE down
 
-docker compose up -d backend nginx
+# --------------------------------------------------
+# Start DB SERVICE ONLY (service name!)
+# --------------------------------------------------
+echo "▶️ Starting database service"
+$COMPOSE up -d db
 
+# --------------------------------------------------
+# Restore database
+# --------------------------------------------------
+"$ROOT/generator/meta-master.sh" phase 86-restore.sh
+
+# --------------------------------------------------
+# Start remaining services
+# --------------------------------------------------
+echo "▶️ Starting all services"
+$COMPOSE up -d
+
+# --------------------------------------------------
+# Health check
+# --------------------------------------------------
+echo "⏳ Waiting for backend health"
 for i in {1..30}; do
   if curl -fs http://localhost/api/healthz.php >/dev/null; then
-    echo "✅ Health check passed"
+    echo "✅ DR TEST PASSED – Platform recovered"
     exit 0
   fi
   sleep 2
 done
 
-echo "❌ DR test failed"
+echo "❌ DR TEST FAILED – Backend did not recover"
 exit 1

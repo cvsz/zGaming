@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
-IFS=$'
-	'
-
-#!/usr/bin/env bash
 # ============================================================
 # ASSERT LIBRARY – META-MASTER
 # DO NOT ASSUME GLOBAL PATHS
 # ============================================================
 
-set -euo pipefail
+set -Eeuo pipefail
 
 echo "=================================================="
 echo "[ASSERT] CASINO PLATFORM PRE-FLIGHT CHECK"

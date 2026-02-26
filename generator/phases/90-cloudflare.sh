@@ -22,7 +22,7 @@ mkdir -p "$CF"/{tunnel,docs}
 # ============================================================
 
 cat > "$CF/tunnel/config.yml" <<'YAML'
-tunnel: casino-platform
+tunnel: zGaming
 credentials-file: /etc/cloudflared/creds.json
 
 ingress:
@@ -42,7 +42,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: casino-cloudflared
-    command: tunnel run casino-platform
+    command: tunnel run zGaming
     volumes:
       - ./cloudflare/tunnel:/etc/cloudflared
     restart: unless-stopped

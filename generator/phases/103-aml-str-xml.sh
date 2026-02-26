@@ -51,7 +51,7 @@ cat > "$OUT/str.xml" <<EOF
 <STRReport license="$LICENSE" date="$DAY">
   <GeneratedAt>$(date -Is)</GeneratedAt>
   <Threshold>${AML_THRESHOLD:-10000}</Threshold>
-  <Source>casino-platform</Source>
+  <Source>zGaming</Source>
 </STRReport>
 EOF
 

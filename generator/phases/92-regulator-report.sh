@@ -42,7 +42,7 @@ jq -n \
   --arg day "$DAY" \
   '{
     report_date:$day,
-    system:"casino-platform",
+    system:"zGaming",
     compliant:true,
     generated_at:now
   }' > "$OUT/manifest.json"

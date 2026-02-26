@@ -4,7 +4,7 @@ IFS=$'\n\t'
 
 echo "=== zGaming START v3.4 (REPO-AWARE) ==="
 
-BASE="/home/zeazdev/casino-platform"
+BASE="/home/zeazdev/zGaming"
 
 # --------------------------------------------------
 # Resolve actual repo root

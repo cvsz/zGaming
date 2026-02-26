@@ -13,7 +13,7 @@ echo "[PHASE 99] FINAL RELEASE – Package / Sign / Verify / Handover"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="$ROOT/release"
-NAME="casino-platform"
+NAME="zGaming"
 VERSION="$(date +%Y.%m.%d-%H%M)"
 
 mkdir -p "$OUT"/{artifacts,checksums,signatures,docs}
@@ -54,9 +54,9 @@ docker compose build backend
 
 echo "[EXPORT] Docker images"
 IMAGES=(
-  casino-platform-backend
-  casino-platform-frontend-player
-  casino-platform-frontend-admin
+  zGaming-backend
+  zGaming-frontend-player
+  zGaming-frontend-admin
 )
 
 for img in "${IMAGES[@]}"; do

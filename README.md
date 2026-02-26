@@ -54,7 +54,7 @@ Infra:
 ## 📂 Repository Structure
 
 ```
-casino-platform/
+zGaming/
 ├── backend/              # PHP backend (wallet, auth, callbacks)
 ├── frontend-player/      # React player UI
 ├── frontend-admin/       # React admin UI
@@ -139,7 +139,7 @@ MM_FROM_PHASE=90-cloudflare.sh MM_TO_PHASE=99-release.sh ./generator/meta-master
 
 ```bash
 git clone <repo>
-cd casino-platform
+cd zGaming
 
 chmod +x generator/meta-master.sh
 ./generator/meta-master.sh all

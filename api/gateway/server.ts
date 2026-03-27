@@ -4,6 +4,11 @@ import jwt from "@fastify/jwt";
 import { z } from "zod";
 
 const app = Fastify({ logger: true });
+const jwtSecret = process.env.JWT_SECRET;
+
+if (!jwtSecret || jwtSecret === "change-me") {
+  throw new Error("JWT_SECRET must be set to a strong non-default value");
+}
 
 await app.register(rateLimit, {
   max: 100,
@@ -11,7 +16,7 @@ await app.register(rateLimit, {
 });
 
 await app.register(jwt, {
-  secret: process.env.JWT_SECRET ?? "change-me",
+  secret: jwtSecret,
 });
 
 const loginSchema = z.object({
@@ -23,7 +28,7 @@ app.decorate("auth", async (request, reply) => {
   try {
     await request.jwtVerify();
   } catch {
-    reply.code(401).send({ error: "Unauthorized" });
+    return reply.code(401).send({ error: "Unauthorized" });
   }
 });
 

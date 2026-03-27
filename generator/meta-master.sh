@@ -39,6 +39,7 @@ Usage:
   ./generator/meta-master.sh all                    # run full pipeline (default)
   ./generator/meta-master.sh final                  # alias of `all`
   ./generator/meta-master.sh installer              # alias of `all`
+  ./generator/meta-master.sh clean-installer [mode] # run ultra clean installer (quick/full/diagnostics/audit)
   ./generator/meta-master.sh upgrade                # re-run full pipeline safely
   ./generator/meta-master.sh test                   # run go-live test/report phase
   ./generator/meta-master.sh doctor                 # run environment guard only
@@ -238,6 +239,13 @@ main() {
       export MM_UPGRADE_MODE=1
       echo "🔄 UPGRADE MODE ENABLED"
       run_all
+      ;;
+    clean-installer)
+      local mode="${2:-full}"
+      if [[ ! -x "$ROOT/installer/zgaming-ultra-installer.sh" ]]; then
+        fail "Installer script missing: $ROOT/installer/zgaming-ultra-installer.sh"
+      fi
+      bash "$ROOT/installer/zgaming-ultra-installer.sh" "$mode"
       ;;
     test)
       run_phase "00-guard.sh"

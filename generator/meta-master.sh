@@ -92,6 +92,7 @@ PHASE_ORDER=(
   "104-bank-settlement.sh"
   "105-compliance-dashboard.sh"
   "106-auditor-handover.sh"
+  "107-meta-orchestrator.sh"
   "110-runtest-report.sh"
   "99-release.sh"
 )

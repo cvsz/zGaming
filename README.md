@@ -126,6 +126,38 @@ Run only this scaffold phase:
 ./generator/meta-master.sh phase 107-meta-orchestrator.sh
 ```
 
+
+## 🧼 Clean Installer (Ultra Meta Platform 2026)
+
+ใช้ตัวติดตั้งใหม่ที่รวม deterministic install + metadata extraction + compliance report + SBOM-lite:
+
+```bash
+./installer/zgaming-ultra-installer.sh quick
+./installer/zgaming-ultra-installer.sh full
+./generator/meta-master.sh clean-installer full
+```
+
+สิ่งที่ installer ทำแบบอัตโนมัติ:
+
+- ตรวจสอบ dependency/runtime (docker, git, bash, rg, curl)
+- รัน `meta-master doctor` เพื่อยืนยัน baseline
+- สแกนไฟล์ทั้ง repo และสร้าง `installer/artifacts/repo-manifest.sha256`
+- สร้างรายงาน compliance: `installer/reports/compliance-report.json`
+- สร้าง SBOM-lite (SPDX JSON): `installer/artifacts/sbom-lite.spdx.json`
+- รองรับ diagnostics mode สำหรับ container/network health
+
+Pseudo-workflow:
+
+```text
+clean_install(mode):
+  verify required binaries + runtime
+  doctor-check deterministic platform baseline
+  scan repository files => hash manifest
+  evaluate compliance baselines => structured report
+  generate SPDX-lite SBOM artifact
+  if mode == full: run full meta-master installer + diagnostics
+```
+
 ## ⚙️ Requirements
 
 ขั้นต่ำ:

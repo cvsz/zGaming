@@ -70,6 +70,15 @@ zGaming/
 
 ---
 
+
+## 📘 Architecture Blueprint Extension
+
+ต้องการแผนเชิงระบบแบบละเอียด (meta-architecture + roadmap + VMware/Gitea/Cloudflared):
+
+- ดู `docs/master-meta-blueprint.md`
+
+---
+
 ## 🧠 Meta-Master Concept
 
 ทุกอย่างถูกแบ่งเป็น **Phase**

@@ -76,6 +76,7 @@ zGaming/
 ต้องการแผนเชิงระบบแบบละเอียด (meta-architecture + roadmap + VMware/Gitea/Cloudflared):
 
 - ดู `docs/master-meta-blueprint.md`
+- ดู `docs/codex-master-meta-prompt-template-2026.md` (prompt template สำหรับสั่งงาน Codex แบบ production/compliance-first)
 
 ---
 

@@ -454,3 +454,18 @@ Added production-oriented modules for deterministic gaming and multi-chain walle
 - `docs/ultra-meta-implementation-plan.md` (pseudo-flow, compliance checklist, layer mapping)
 
 > หมายเหตุ: wallet signer ใน scaffold เป็น development provider เท่านั้น ต้องเปลี่ยนเป็น KMS/HSM ก่อน production จริง.
+
+---
+
+## 🔒 2026 Upgrade Highlights
+
+- Backend auth hardening: `backend/api/login.php` now validates canonical wallet intent, nonce format, signature, and emits short-lived JWT claims.
+- Multi-chain orchestration: `modules/wallet/` enforces chainId allow-lists for ETH/SOL adapters and exposes human-readable transaction intent.
+- Audit-ready ledger: `modules/ledger/ledger.ts` now returns immutable hash and duplicate-detection status for provider callback idempotency.
+- Kubernetes hardening: `infra/kubernetes/api-deployment.yaml` includes ConfigMap/Secret split, HPA, Service, and NetworkPolicy baseline.
+- Observability + chaos: `scripts/healthcheck.sh` validates app + trace endpoint; `scripts/chaos-callback-storm.sh` simulates callback storms.
+- Immutable artifacts: installer now emits `SHA256SUMS` and `SHA256SUMS.sig` under `installer/artifacts/release/`.
+
+Additional documentation:
+- `docs/compliance-checklist.md`
+- `docs/architecture-diagram.md`

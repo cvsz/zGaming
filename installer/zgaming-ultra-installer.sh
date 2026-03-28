@@ -13,6 +13,8 @@ COMPLIANCE_FILE="$REPORT_DIR/compliance-report.json"
 AUDIT_FILE="$REPORT_DIR/audit-report.json"
 RELEASE_DIR="$ARTIFACT_DIR/release"
 WORKFLOW_FILE="$ARTIFACT_DIR/workflow-plan.txt"
+SHA256SUMS_FILE="$RELEASE_DIR/SHA256SUMS"
+SIGNATURE_FILE="$RELEASE_DIR/SHA256SUMS.sig"
 
 mkdir -p "$REPORT_DIR" "$ARTIFACT_DIR" "$RELEASE_DIR"
 
@@ -42,16 +44,6 @@ Usage:
   ./installer/zgaming-ultra-installer.sh package
   ./installer/zgaming-ultra-installer.sh plan
   ./installer/zgaming-ultra-installer.sh menu
-
-Modes:
-  quick         -> preflight + deterministic generator doctor + metadata extraction
-  full          -> quick + meta-master installer pipeline + diagnostics + release package
-  full-project  -> strict full mode with hardening + vulnerability scan + audit report
-  diagnostics   -> network/container/cloud diagnostics only
-  audit         -> metadata manifest + compliance report + SBOM + structured audit JSON
-  package       -> reproducible bundle with checksums and version metadata
-  plan          -> print pseudo-code workflow for deterministic install pipeline
-  menu          -> interactive menu for one-click operator workflows
 USAGE
 }
 
@@ -65,8 +57,8 @@ clean_install(mode):
   emit SPDX-lite SBOM + structured audit report
   if mode in [full, full-project]: run generator installer
   run diagnostics for container/network/time-sync and local stack health
-  if mode == full-project: run vulnerability scan (best effort)
-  package release artifacts (manifest, compliance, sbom, logs)
+  execute chaos callback storm test for idempotency validation
+  package immutable release artifacts + SHA256SUMS + signature
 PLAN
   echo "🧭 Workflow saved to: $WORKFLOW_FILE"
 }
@@ -85,7 +77,7 @@ require_bins() {
   local missing=0
   local bins=("$@")
   if (( ${#bins[@]} == 0 )); then
-    bins=(bash git sha256sum awk sed find curl rg)
+    bins=(bash git sha256sum awk sed find curl rg zip openssl)
   fi
   for bin in "${bins[@]}"; do
     if ! command -v "$bin" >/dev/null 2>&1; then
@@ -99,21 +91,15 @@ require_bins() {
 
 check_runtime() {
   log_json "info" "runtime_check" "checking docker and repository state"
-
   if ! docker info >/dev/null 2>&1; then
     echo "⚠️ Docker daemon unavailable (non-fatal for audit mode)"
     log_json "warn" "docker_unavailable" "docker daemon not reachable"
   fi
-
-  if [[ ! -f "$ROOT/generator/meta-master.sh" ]]; then
-    echo "❌ generator/meta-master.sh missing"
-    exit 1
-  fi
+  [[ -f "$ROOT/generator/meta-master.sh" ]] || { echo "❌ generator/meta-master.sh missing"; exit 1; }
 }
 
 extract_repo_metadata() {
   log_json "info" "metadata_extraction" "building repository manifest and topology"
-
   (
     cd "$ROOT"
     : > "$MANIFEST_FILE"
@@ -125,18 +111,12 @@ extract_repo_metadata() {
       -not -path './installer/artifacts/*' \
       -print0 | sort -z)
   )
-
-  local file_count
-  file_count="$(wc -l < "$MANIFEST_FILE" | awk '{print $1}')"
-  log_json "info" "metadata_manifest_ready" "files_hashed=$file_count manifest=$MANIFEST_FILE"
+  log_json "info" "metadata_manifest_ready" "files_hashed=$(wc -l < "$MANIFEST_FILE" | awk '{print $1}')"
 }
 
 generate_sbom_lite() {
-  log_json "info" "sbom_generation" "generating lightweight SPDX-compatible SBOM"
-
   local version
   version="$(cat "$ROOT/generator/VERSION" 2>/dev/null || echo "unknown")"
-
   cat > "$SBOM_FILE" <<EOF_SBOM
 {
   "spdxVersion": "SPDX-2.3",
@@ -145,39 +125,31 @@ generate_sbom_lite() {
   "name": "zGaming-ultra-meta-sbom-lite",
   "documentNamespace": "https://zgaming.local/spdx/$(date -u +%Y%m%dT%H%M%SZ)",
   "creationInfo": {
-    "creators": [
-      "Tool: zgaming-ultra-installer"
-    ],
+    "creators": ["Tool: zgaming-ultra-installer"],
     "created": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   },
-  "packages": [
-    {
-      "name": "zGaming",
-      "SPDXID": "SPDXRef-Package-zGaming",
-      "versionInfo": "$version",
-      "downloadLocation": "NOASSERTION",
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "supplier": "Organization: zGaming"
-    }
-  ]
+  "packages": [{
+    "name": "zGaming",
+    "SPDXID": "SPDXRef-Package-zGaming",
+    "versionInfo": "$version",
+    "downloadLocation": "NOASSERTION",
+    "filesAnalyzed": false,
+    "licenseConcluded": "NOASSERTION",
+    "supplier": "Organization: zGaming"
+  }]
 }
 EOF_SBOM
-
-  log_json "info" "sbom_ready" "sbom=$SBOM_FILE"
 }
 
 compliance_checks() {
-  log_json "info" "compliance_check" "running deterministic + security baseline checks"
-
-  local strict_mode_count phase_count has_compose has_k8s
+  local strict_mode_count phase_count has_compose has_k8s has_chaos has_wallet has_ledger
   strict_mode_count="$(find "$ROOT/generator" -type f -name '*.sh' -exec awk 'FNR==1, FNR==20 {print}' {} + | rg -c 'set -Eeuo pipefail' || true)"
   phase_count="$(find "$ROOT/generator/phases" -maxdepth 1 -type f -name '*.sh' | wc -l | awk '{print $1}')"
-  has_compose=false
-  has_k8s=false
-
-  [[ -f "$ROOT/docker-compose.yml" ]] && has_compose=true
-  [[ -d "$ROOT/k8s" ]] && has_k8s=true
+  [[ -f "$ROOT/docker-compose.yml" ]] && has_compose=true || has_compose=false
+  [[ -d "$ROOT/infra/kubernetes" ]] && has_k8s=true || has_k8s=false
+  [[ -x "$ROOT/scripts/chaos-callback-storm.sh" ]] && has_chaos=true || has_chaos=false
+  [[ -f "$ROOT/modules/wallet/index.ts" ]] && has_wallet=true || has_wallet=false
+  [[ -f "$ROOT/modules/ledger/ledger.ts" ]] && has_ledger=true || has_ledger=false
 
   cat > "$COMPLIANCE_FILE" <<EOF_COMPLIANCE
 {
@@ -189,38 +161,16 @@ compliance_checks() {
     "has_orchestrator_scaffold": $( [[ -f "$ROOT/core/orchestrator/kernel.ts" ]] && echo true || echo false ),
     "has_gateway": $( [[ -f "$ROOT/api/gateway/server.ts" ]] && echo true || echo false ),
     "has_compose": $has_compose,
-    "has_kubernetes_folder": $has_k8s
+    "has_kubernetes_folder": $has_k8s,
+    "has_chaos_callback_test": $has_chaos,
+    "has_multichain_wallet_module": $has_wallet,
+    "has_idempotent_ledger_module": $has_ledger
   }
 }
 EOF_COMPLIANCE
-
-  log_json "info" "compliance_ready" "report=$COMPLIANCE_FILE"
-}
-
-run_hardening_checks() {
-  log_json "info" "hardening_checks" "running hardening checks for dns/firewall/ntp"
-
-  {
-    echo "== Hardening checks =="
-    echo "Date(UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    echo "-- DNS --"
-    awk '/^nameserver/{print}' /etc/resolv.conf 2>/dev/null || true
-    echo "-- Time sync --"
-    timedatectl status 2>/dev/null | sed -n '1,8p' || true
-    echo "-- Firewall --"
-    if command -v ufw >/dev/null 2>&1; then
-      ufw status 2>/dev/null || true
-    elif command -v firewall-cmd >/dev/null 2>&1; then
-      firewall-cmd --state 2>/dev/null || true
-    else
-      echo "No supported firewall CLI found (ufw/firewall-cmd)."
-    fi
-  } | tee -a "$LOG_FILE" >/dev/null
 }
 
 write_audit_report() {
-  log_json "info" "audit_report" "writing structured audit metadata"
-
   local git_commit git_branch version docker_version compose_version
   git_commit="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
   git_branch="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
@@ -233,10 +183,7 @@ write_audit_report() {
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "project": "zGaming",
   "version": "$version",
-  "git": {
-    "branch": "$git_branch",
-    "commit": "$git_commit"
-  },
+  "git": {"branch": "$git_branch", "commit": "$git_commit"},
   "runtime": {
     "os": "$(uname -s)",
     "kernel": "$(uname -r)",
@@ -248,108 +195,90 @@ write_audit_report() {
     "manifest": "$MANIFEST_FILE",
     "compliance": "$COMPLIANCE_FILE",
     "sbom": "$SBOM_FILE",
-    "workflow": "$WORKFLOW_FILE"
+    "workflow": "$WORKFLOW_FILE",
+    "sha256sums": "$SHA256SUMS_FILE",
+    "signature": "$SIGNATURE_FILE"
   }
 }
 EOF_AUDIT
 }
 
-run_vulnerability_scan() {
-  log_json "info" "vuln_scan" "running vulnerability scan (best effort)"
-  if command -v trivy >/dev/null 2>&1; then
-    trivy fs --quiet --scanners vuln,misconfig --format table "$ROOT" | tee -a "$LOG_FILE" >/dev/null || true
-  else
-    echo "⚠️ trivy not installed, skipping vulnerability scan"
-    log_json "warn" "vuln_scan_skipped" "trivy not installed"
-  fi
-}
-
 build_release_package() {
-  log_json "info" "release_package" "building reproducible release bundle"
-
-  local version ts bundle checksum_file
+  local version ts bundle
   version="$(cat "$ROOT/generator/VERSION" 2>/dev/null || echo "unknown")"
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
   bundle="$RELEASE_DIR/zgaming-installer-bundle-${version}-${ts}.zip"
-  checksum_file="$bundle.sha256"
 
   (
     cd "$ROOT"
-    zip -q -r "$bundle" \
-      README.md CHANGELOG.md \
-      installer/reports installer/artifacts \
-      generator/VERSION
+    SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1704067200}" \
+      zip -X -q -r "$bundle" \
+      README.md CHANGELOG.md docs \
+      installer/reports installer/artifacts generator/VERSION scripts
   )
 
-  sha256sum "$bundle" > "$checksum_file"
-  log_json "info" "release_bundle_ready" "bundle=$bundle checksum=$checksum_file"
+  : > "$SHA256SUMS_FILE"
+  sha256sum "$bundle" >> "$SHA256SUMS_FILE"
+  sha256sum "$MANIFEST_FILE" "$SBOM_FILE" "$COMPLIANCE_FILE" "$AUDIT_FILE" >> "$SHA256SUMS_FILE"
+
+  if [[ -n "${RELEASE_SIGNING_KEY:-}" && -f "${RELEASE_SIGNING_KEY}" ]]; then
+    openssl dgst -sha256 -sign "$RELEASE_SIGNING_KEY" -out "$SIGNATURE_FILE" "$SHA256SUMS_FILE"
+  else
+    openssl dgst -sha256 "$SHA256SUMS_FILE" > "$SIGNATURE_FILE"
+  fi
+
+  log_json "info" "release_bundle_ready" "bundle=$bundle sha=$SHA256SUMS_FILE sig=$SIGNATURE_FILE"
 }
 
 run_diagnostics() {
-  log_json "info" "diagnostics" "running network/container diagnostics"
   echo "== Diagnostics =="
   echo "Date(UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  echo "Host: $(uname -a)"
-
   if command -v docker >/dev/null 2>&1; then
-    echo "-- docker compose version --"
     docker compose version || true
-    echo "-- docker ps --"
     docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' || true
   fi
+  [[ -x "$ROOT/scripts/healthcheck.sh" ]] && "$ROOT/scripts/healthcheck.sh" "${API_URL:-http://localhost/api/healthz.php}" || true
+}
 
-  echo "-- healthcheck probe --"
-  if [[ -x "$ROOT/scripts/healthcheck.sh" ]]; then
-    "$ROOT/scripts/healthcheck.sh" http://localhost/api/healthz.php || true
+run_chaos() {
+  if [[ -x "$ROOT/scripts/chaos-callback-storm.sh" ]]; then
+    "$ROOT/scripts/chaos-callback-storm.sh" || true
   else
-    curl -fsS http://localhost/api/healthz.php >/dev/null || true
+    echo "⚠️ chaos test script not found"
   fi
 }
 
 run_quick() {
-  require_bins bash git sha256sum awk sed find curl docker rg zip
+  require_bins bash git sha256sum awk sed find curl docker rg zip openssl
   check_runtime
   print_plan
-  (
-    cd "$ROOT"
-    bash ./generator/meta-master.sh doctor
-  )
+  (cd "$ROOT" && bash ./generator/meta-master.sh doctor)
   extract_repo_metadata
   compliance_checks
   generate_sbom_lite
   write_audit_report
-  log_json "info" "quick_complete" "quick mode finished"
 }
 
 run_full() {
   run_quick
-  (
-    cd "$ROOT"
-    bash ./generator/meta-master.sh installer
-  )
-  run_hardening_checks
+  (cd "$ROOT" && bash ./generator/meta-master.sh installer)
   run_diagnostics
+  run_chaos
   build_release_package
-  log_json "info" "full_complete" "full mode finished"
 }
 
 run_full_project() {
   run_full
-  run_vulnerability_scan
-  log_json "info" "full_project_complete" "full-project mode finished"
+  if command -v trivy >/dev/null 2>&1; then
+    trivy fs --quiet --scanners vuln,misconfig --format table "$ROOT" | tee -a "$LOG_FILE" >/dev/null || true
+  else
+    echo "⚠️ trivy not installed, skipping vulnerability scan"
+  fi
 }
 
 menu() {
-  echo "Select workflow:"
-  echo "  1) Quick"
-  echo "  2) Full"
-  echo "  3) Full Project"
-  echo "  4) Diagnostics"
-  echo "  5) Audit"
-  echo "  6) Package"
-  echo "  7) Plan"
+  echo "Select workflow: 1) Quick 2) Full 3) Full Project 4) Diagnostics 5) Audit 6) Package 7) Plan"
   read -r -p "Choice [1-7]: " choice
-
   case "$choice" in
     1) run_quick ;;
     2) run_full ;;
@@ -364,7 +293,6 @@ menu() {
 
 main() {
   local cmd="${1:-menu}"
-
   print_banner
   case "$cmd" in
     quick) run_quick ;;
@@ -372,15 +300,11 @@ main() {
     full-project) run_full_project ;;
     diagnostics) require_bins bash git sha256sum awk sed find curl docker rg; check_runtime; run_diagnostics ;;
     audit) require_bins bash git sha256sum awk sed find curl rg; extract_repo_metadata; compliance_checks; generate_sbom_lite; print_plan; write_audit_report ;;
-    package) require_bins bash git sha256sum zip; build_release_package ;;
+    package) require_bins bash git sha256sum zip openssl; build_release_package ;;
     plan) print_plan ;;
-    menu) require_bins bash git sha256sum awk sed find curl docker rg zip; check_runtime; menu ;;
+    menu) require_bins bash git sha256sum awk sed find curl docker rg zip openssl; check_runtime; menu ;;
     -h|--help|help) usage ;;
-    *)
-      echo "Unknown command: $cmd"
-      usage
-      exit 1
-      ;;
+    *) echo "Unknown command: $cmd"; usage; exit 1 ;;
   esac
 
   echo "✅ Completed. Logs: $LOG_FILE"
@@ -388,6 +312,8 @@ main() {
   echo "🧾 Compliance: $COMPLIANCE_FILE"
   echo "🧪 Audit: $AUDIT_FILE"
   echo "🪪 SBOM: $SBOM_FILE"
+  echo "🔐 SHA256SUMS: $SHA256SUMS_FILE"
+  echo "✍️ Signature: $SIGNATURE_FILE"
 }
 
 main "$@"

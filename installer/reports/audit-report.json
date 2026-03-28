@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-03-28T09:51:29Z",
+  "project": "zGaming",
+  "version": "1.1.0",
+  "git": {"branch": "work", "commit": "0630e81"},
+  "runtime": {
+    "os": "Linux",
+    "kernel": "6.12.47",
+    "arch": "x86_64",
+    "docker": "unavailable",
+    "docker_compose": "unavailable"
+  },
+  "artifacts": {
+    "manifest": "/workspace/zGaming/installer/artifacts/repo-manifest.sha256",
+    "compliance": "/workspace/zGaming/installer/reports/compliance-report.json",
+    "sbom": "/workspace/zGaming/installer/artifacts/sbom-lite.spdx.json",
+    "workflow": "/workspace/zGaming/installer/artifacts/workflow-plan.txt",
+    "sha256sums": "/workspace/zGaming/installer/artifacts/release/SHA256SUMS",
+    "signature": "/workspace/zGaming/installer/artifacts/release/SHA256SUMS.sig"
+  }
+}

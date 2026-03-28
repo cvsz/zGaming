@@ -424,3 +424,17 @@ Meta-Master ถูกออกแบบมาเพื่อ:
 
 **Meta-Master Casino Platform**
 Built to survive production, not demos.
+
+
+## 🎯 Ultra Meta Production Core (New Scaffold)
+
+Added production-oriented modules for deterministic gaming and multi-chain wallet orchestration:
+
+- `modules/game-engine/` (cascade slot engine, provably-fair seed utilities, bounded RTP controller)
+- `modules/wallet/` (stateless signer abstraction + ETH/SOL wallet adapters)
+- `modules/ledger/ledger.ts` (serializable + idempotent transfer primitive)
+- `infra/kubernetes/api-deployment.yaml` (gateway deployment baseline)
+- `.github/workflows/deploy.yml` (container build/push/deploy path)
+- `docs/ultra-meta-implementation-plan.md` (pseudo-flow, compliance checklist, layer mapping)
+
+> หมายเหตุ: wallet signer ใน scaffold เป็น development provider เท่านั้น ต้องเปลี่ยนเป็น KMS/HSM ก่อน production จริง.

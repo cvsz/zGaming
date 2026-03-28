@@ -46,6 +46,7 @@ Usage:
   ./generator/meta-master.sh phase <file>           # run one phase by filename
   ./generator/meta-master.sh list                   # list phase execution order
   ./generator/meta-master.sh status                 # validate phase catalog and layout
+  ./generator/meta-master.sh scan                   # full logic scan + upgrade plan artifact
 
 Optional environment variables:
   MM_FROM_PHASE=<phase-file>    # start from this phase (all/final/installer/upgrade)
@@ -268,6 +269,13 @@ main() {
       echo "   Root      : $ROOT"
       echo "   Phases dir: $PHASES_DIR"
       echo "   Log file  : $LOG"
+      ;;
+    scan)
+      if ! command -v python3 >/dev/null 2>&1; then
+        fail "python3 is required for scan command"
+      fi
+      python3 "$ROOT/scripts/full_logic_scan.py" --repo-root "$ROOT"
+      echo "✅ Logic scan artifacts created under $ROOT/reports"
       ;;
     -h|--help|help)
       usage

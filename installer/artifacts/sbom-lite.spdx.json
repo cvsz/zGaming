@@ -1,0 +1,20 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "zGaming-ultra-meta-sbom-lite",
+  "documentNamespace": "https://zgaming.local/spdx/20260328T095129Z",
+  "creationInfo": {
+    "creators": ["Tool: zgaming-ultra-installer"],
+    "created": "2026-03-28T09:51:29Z"
+  },
+  "packages": [{
+    "name": "zGaming",
+    "SPDXID": "SPDXRef-Package-zGaming",
+    "versionInfo": "1.1.0",
+    "downloadLocation": "NOASSERTION",
+    "filesAnalyzed": false,
+    "licenseConcluded": "NOASSERTION",
+    "supplier": "Organization: zGaming"
+  }]
+}

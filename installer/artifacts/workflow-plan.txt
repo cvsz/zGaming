@@ -1,0 +1,10 @@
+clean_install(mode):
+  validate shell/runtime/toolchain preflight
+  run deterministic doctor baseline
+  extract metadata + immutable file hash manifest
+  execute compliance and security baseline checks
+  emit SPDX-lite SBOM + structured audit report
+  if mode in [full, full-project]: run generator installer
+  run diagnostics for container/network/time-sync and local stack health
+  execute chaos callback storm test for idempotency validation
+  package immutable release artifacts + SHA256SUMS + signature

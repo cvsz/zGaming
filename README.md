@@ -188,6 +188,7 @@ clean_install(mode):
 ./generator/meta-master.sh test    # run phase 110 (go-live test/report)
 ./generator/meta-master.sh list
 ./generator/meta-master.sh status
+./generator/meta-master.sh scan    # generate full logic scan + upgrade plan
 ./generator/meta-master.sh phase 60-frontend.sh
 ```
 รองรับการ run แบบช่วง phase (resume/retry-safe):
@@ -198,6 +199,21 @@ MM_FROM_PHASE=90-cloudflare.sh MM_TO_PHASE=99-release.sh ./generator/meta-master
 ```
 
 ---
+
+
+
+## 🔍 Full Logic Scan + Upgrade Artifacts
+
+สั่งสแกน logic ทั้ง repo แบบ deterministic พร้อมแผน upgrade ที่พร้อม audit:
+
+```bash
+./generator/meta-master.sh scan
+```
+
+Artifacts ที่จะถูกสร้าง:
+
+- `reports/logic-scan-report.json` (structured check results)
+- `reports/logic-scan-upgrade-plan.md` (prioritized remediation plan)
 
 ## 🚀 Quick Start (From Zero)
 

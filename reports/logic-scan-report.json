@@ -1,0 +1,45 @@
+{
+  "summary": {
+    "repository": "/workspace/zGaming",
+    "generated_at_utc": "2026-03-28T09:41:21.307149+00:00",
+    "phase_count": 37,
+    "check_count": 5,
+    "pass_count": 3,
+    "warn_count": 1,
+    "fail_count": 1
+  },
+  "checks": [
+    {
+      "name": "phase_duplicate_numbers",
+      "status": "fail",
+      "details": "Duplicate phase prefixes found: ['99']"
+    },
+    {
+      "name": "phase_strict_mode",
+      "status": "pass",
+      "details": "All phase scripts contain strict shell mode."
+    },
+    {
+      "name": "release_metadata_files",
+      "status": "pass",
+      "details": "README, CHANGELOG, and generator/VERSION are present."
+    },
+    {
+      "name": "todo_fixme_debt",
+      "status": "warn",
+      "details": "Found 7 TODO/FIXME markers in scanned files."
+    },
+    {
+      "name": "cicd_presence",
+      "status": "pass",
+      "details": "CI/CD config detected."
+    }
+  ],
+  "upgrade_actions": [
+    "[P0] Resolve phase_duplicate_numbers: Duplicate phase prefixes found: ['99']",
+    "[P1] Improve todo_fixme_debt: Found 7 TODO/FIXME markers in scanned files.",
+    "[P1] Generate SBOM artifact in CI (SPDX/CycloneDX) and store alongside releases.",
+    "[P1] Add automated vulnerability scan stage (e.g., Trivy/grype) before release packaging.",
+    "[P2] Include reproducibility check by hashing generated artifacts across two clean runs."
+  ]
+}

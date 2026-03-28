@@ -10,8 +10,11 @@ LOG_FILE="$REPORT_DIR/install-$(date -u +%Y%m%dT%H%M%SZ).jsonl"
 MANIFEST_FILE="$ARTIFACT_DIR/repo-manifest.sha256"
 SBOM_FILE="$ARTIFACT_DIR/sbom-lite.spdx.json"
 COMPLIANCE_FILE="$REPORT_DIR/compliance-report.json"
+AUDIT_FILE="$REPORT_DIR/audit-report.json"
+RELEASE_DIR="$ARTIFACT_DIR/release"
+WORKFLOW_FILE="$ARTIFACT_DIR/workflow-plan.txt"
 
-mkdir -p "$REPORT_DIR" "$ARTIFACT_DIR"
+mkdir -p "$REPORT_DIR" "$ARTIFACT_DIR" "$RELEASE_DIR"
 
 log_json() {
   local level="$1" event="$2" details="${3:-}"
@@ -33,17 +36,39 @@ usage() {
 Usage:
   ./installer/zgaming-ultra-installer.sh quick
   ./installer/zgaming-ultra-installer.sh full
+  ./installer/zgaming-ultra-installer.sh full-project
   ./installer/zgaming-ultra-installer.sh diagnostics
   ./installer/zgaming-ultra-installer.sh audit
+  ./installer/zgaming-ultra-installer.sh package
+  ./installer/zgaming-ultra-installer.sh plan
   ./installer/zgaming-ultra-installer.sh menu
 
 Modes:
-  quick        -> preflight + deterministic generator doctor + metadata extraction
-  full         -> quick + meta-master installer pipeline + compliance checks + SBOM
-  diagnostics  -> network/container/cloud diagnostics only
-  audit        -> metadata manifest + compliance report + SBOM generation
-  menu         -> interactive menu for one-click operator workflows
+  quick         -> preflight + deterministic generator doctor + metadata extraction
+  full          -> quick + meta-master installer pipeline + diagnostics + release package
+  full-project  -> strict full mode with hardening + vulnerability scan + audit report
+  diagnostics   -> network/container/cloud diagnostics only
+  audit         -> metadata manifest + compliance report + SBOM + structured audit JSON
+  package       -> reproducible bundle with checksums and version metadata
+  plan          -> print pseudo-code workflow for deterministic install pipeline
+  menu          -> interactive menu for one-click operator workflows
 USAGE
+}
+
+print_plan() {
+  cat <<'PLAN' | tee "$WORKFLOW_FILE" >/dev/null
+clean_install(mode):
+  validate shell/runtime/toolchain preflight
+  run deterministic doctor baseline
+  extract metadata + immutable file hash manifest
+  execute compliance and security baseline checks
+  emit SPDX-lite SBOM + structured audit report
+  if mode in [full, full-project]: run generator installer
+  run diagnostics for container/network/time-sync and local stack health
+  if mode == full-project: run vulnerability scan (best effort)
+  package release artifacts (manifest, compliance, sbom, logs)
+PLAN
+  echo "🧭 Workflow saved to: $WORKFLOW_FILE"
 }
 
 rollback() {
@@ -145,9 +170,14 @@ EOF_SBOM
 compliance_checks() {
   log_json "info" "compliance_check" "running deterministic + security baseline checks"
 
-  local strict_mode_count phase_count
-  strict_mode_count="$(find "$ROOT/generator" -type f -name '*.sh' -exec awk 'FNR==1, FNR==15 {print}' {} + | rg -c 'set -Eeuo pipefail' || true)"
+  local strict_mode_count phase_count has_compose has_k8s
+  strict_mode_count="$(find "$ROOT/generator" -type f -name '*.sh' -exec awk 'FNR==1, FNR==20 {print}' {} + | rg -c 'set -Eeuo pipefail' || true)"
   phase_count="$(find "$ROOT/generator/phases" -maxdepth 1 -type f -name '*.sh' | wc -l | awk '{print $1}')"
+  has_compose=false
+  has_k8s=false
+
+  [[ -f "$ROOT/docker-compose.yml" ]] && has_compose=true
+  [[ -d "$ROOT/k8s" ]] && has_k8s=true
 
   cat > "$COMPLIANCE_FILE" <<EOF_COMPLIANCE
 {
@@ -157,12 +187,102 @@ compliance_checks() {
     "phase_script_count": $phase_count,
     "has_phase_checksum": $( [[ -f "$ROOT/generator/phases/SHA256SUMS" ]] && echo true || echo false ),
     "has_orchestrator_scaffold": $( [[ -f "$ROOT/core/orchestrator/kernel.ts" ]] && echo true || echo false ),
-    "has_gateway": $( [[ -f "$ROOT/api/gateway/server.ts" ]] && echo true || echo false )
+    "has_gateway": $( [[ -f "$ROOT/api/gateway/server.ts" ]] && echo true || echo false ),
+    "has_compose": $has_compose,
+    "has_kubernetes_folder": $has_k8s
   }
 }
 EOF_COMPLIANCE
 
   log_json "info" "compliance_ready" "report=$COMPLIANCE_FILE"
+}
+
+run_hardening_checks() {
+  log_json "info" "hardening_checks" "running hardening checks for dns/firewall/ntp"
+
+  {
+    echo "== Hardening checks =="
+    echo "Date(UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "-- DNS --"
+    awk '/^nameserver/{print}' /etc/resolv.conf 2>/dev/null || true
+    echo "-- Time sync --"
+    timedatectl status 2>/dev/null | sed -n '1,8p' || true
+    echo "-- Firewall --"
+    if command -v ufw >/dev/null 2>&1; then
+      ufw status 2>/dev/null || true
+    elif command -v firewall-cmd >/dev/null 2>&1; then
+      firewall-cmd --state 2>/dev/null || true
+    else
+      echo "No supported firewall CLI found (ufw/firewall-cmd)."
+    fi
+  } | tee -a "$LOG_FILE" >/dev/null
+}
+
+write_audit_report() {
+  log_json "info" "audit_report" "writing structured audit metadata"
+
+  local git_commit git_branch version docker_version compose_version
+  git_commit="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+  git_branch="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
+  version="$(cat "$ROOT/generator/VERSION" 2>/dev/null || echo "unknown")"
+  docker_version="$(docker --version 2>/dev/null | sed 's/"//g' || echo "unavailable")"
+  compose_version="$(docker compose version 2>/dev/null | sed 's/"//g' || echo "unavailable")"
+
+  cat > "$AUDIT_FILE" <<EOF_AUDIT
+{
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "project": "zGaming",
+  "version": "$version",
+  "git": {
+    "branch": "$git_branch",
+    "commit": "$git_commit"
+  },
+  "runtime": {
+    "os": "$(uname -s)",
+    "kernel": "$(uname -r)",
+    "arch": "$(uname -m)",
+    "docker": "$docker_version",
+    "docker_compose": "$compose_version"
+  },
+  "artifacts": {
+    "manifest": "$MANIFEST_FILE",
+    "compliance": "$COMPLIANCE_FILE",
+    "sbom": "$SBOM_FILE",
+    "workflow": "$WORKFLOW_FILE"
+  }
+}
+EOF_AUDIT
+}
+
+run_vulnerability_scan() {
+  log_json "info" "vuln_scan" "running vulnerability scan (best effort)"
+  if command -v trivy >/dev/null 2>&1; then
+    trivy fs --quiet --scanners vuln,misconfig --format table "$ROOT" | tee -a "$LOG_FILE" >/dev/null || true
+  else
+    echo "⚠️ trivy not installed, skipping vulnerability scan"
+    log_json "warn" "vuln_scan_skipped" "trivy not installed"
+  fi
+}
+
+build_release_package() {
+  log_json "info" "release_package" "building reproducible release bundle"
+
+  local version ts bundle checksum_file
+  version="$(cat "$ROOT/generator/VERSION" 2>/dev/null || echo "unknown")"
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  bundle="$RELEASE_DIR/zgaming-installer-bundle-${version}-${ts}.zip"
+  checksum_file="$bundle.sha256"
+
+  (
+    cd "$ROOT"
+    zip -q -r "$bundle" \
+      README.md CHANGELOG.md \
+      installer/reports installer/artifacts \
+      generator/VERSION
+  )
+
+  sha256sum "$bundle" > "$checksum_file"
+  log_json "info" "release_bundle_ready" "bundle=$bundle checksum=$checksum_file"
 }
 
 run_diagnostics() {
@@ -187,8 +307,9 @@ run_diagnostics() {
 }
 
 run_quick() {
-  require_bins bash git sha256sum awk sed find curl docker rg
+  require_bins bash git sha256sum awk sed find curl docker rg zip
   check_runtime
+  print_plan
   (
     cd "$ROOT"
     bash ./generator/meta-master.sh doctor
@@ -196,6 +317,7 @@ run_quick() {
   extract_repo_metadata
   compliance_checks
   generate_sbom_lite
+  write_audit_report
   log_json "info" "quick_complete" "quick mode finished"
 }
 
@@ -205,23 +327,37 @@ run_full() {
     cd "$ROOT"
     bash ./generator/meta-master.sh installer
   )
+  run_hardening_checks
   run_diagnostics
+  build_release_package
   log_json "info" "full_complete" "full mode finished"
+}
+
+run_full_project() {
+  run_full
+  run_vulnerability_scan
+  log_json "info" "full_project_complete" "full-project mode finished"
 }
 
 menu() {
   echo "Select workflow:"
   echo "  1) Quick"
   echo "  2) Full"
-  echo "  3) Diagnostics"
-  echo "  4) Audit"
-  read -r -p "Choice [1-4]: " choice
+  echo "  3) Full Project"
+  echo "  4) Diagnostics"
+  echo "  5) Audit"
+  echo "  6) Package"
+  echo "  7) Plan"
+  read -r -p "Choice [1-7]: " choice
 
   case "$choice" in
     1) run_quick ;;
     2) run_full ;;
-    3) run_diagnostics ;;
-    4) extract_repo_metadata; compliance_checks; generate_sbom_lite ;;
+    3) run_full_project ;;
+    4) run_diagnostics ;;
+    5) extract_repo_metadata; compliance_checks; generate_sbom_lite; print_plan; write_audit_report ;;
+    6) build_release_package ;;
+    7) print_plan ;;
     *) echo "Invalid choice"; exit 1 ;;
   esac
 }
@@ -233,9 +369,12 @@ main() {
   case "$cmd" in
     quick) run_quick ;;
     full) run_full ;;
+    full-project) run_full_project ;;
     diagnostics) require_bins bash git sha256sum awk sed find curl docker rg; check_runtime; run_diagnostics ;;
-    audit) require_bins bash git sha256sum awk sed find curl rg; extract_repo_metadata; compliance_checks; generate_sbom_lite ;;
-    menu) require_bins bash git sha256sum awk sed find curl docker rg; check_runtime; menu ;;
+    audit) require_bins bash git sha256sum awk sed find curl rg; extract_repo_metadata; compliance_checks; generate_sbom_lite; print_plan; write_audit_report ;;
+    package) require_bins bash git sha256sum zip; build_release_package ;;
+    plan) print_plan ;;
+    menu) require_bins bash git sha256sum awk sed find curl docker rg zip; check_runtime; menu ;;
     -h|--help|help) usage ;;
     *)
       echo "Unknown command: $cmd"
@@ -247,6 +386,7 @@ main() {
   echo "✅ Completed. Logs: $LOG_FILE"
   echo "📦 Manifest: $MANIFEST_FILE"
   echo "🧾 Compliance: $COMPLIANCE_FILE"
+  echo "🧪 Audit: $AUDIT_FILE"
   echo "🪪 SBOM: $SBOM_FILE"
 }
 

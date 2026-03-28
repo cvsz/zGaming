@@ -134,6 +134,8 @@ Run only this scaffold phase:
 ```bash
 ./installer/zgaming-ultra-installer.sh quick
 ./installer/zgaming-ultra-installer.sh full
+./installer/zgaming-ultra-installer.sh full-project
+./installer/zgaming-ultra-installer.sh plan
 ./generator/meta-master.sh clean-installer full
 ```
 
@@ -145,6 +147,8 @@ Run only this scaffold phase:
 - สร้างรายงาน compliance: `installer/reports/compliance-report.json`
 - สร้าง SBOM-lite (SPDX JSON): `installer/artifacts/sbom-lite.spdx.json`
 - รองรับ diagnostics mode สำหรับ container/network health
+- มีโหมด `full-project` สำหรับ hardening checks + vulnerability scan + release packaging
+- สร้าง audit report แบบ structured (`installer/reports/audit-report.json`) และ workflow plan (`installer/artifacts/workflow-plan.txt`)
 
 Pseudo-workflow:
 

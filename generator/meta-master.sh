@@ -95,8 +95,8 @@ PHASE_ORDER=(
   "105-compliance-dashboard.sh"
   "106-auditor-handover.sh"
   "107-meta-orchestrator.sh"
+  "108-release.sh"
   "110-runtest-report.sh"
-  "99-release.sh"
 )
 
 assert_layout() {

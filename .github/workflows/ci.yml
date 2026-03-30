@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    name: Source Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate shell scripts
+        run: |
+          set -euo pipefail
+          mapfile -t scripts < <(find . -type f -name '*.sh' ! -path './.git/*')
+          if [ "${#scripts[@]}" -eq 0 ]; then
+            echo "No shell scripts found"
+            exit 0
+          fi
+          for file in "${scripts[@]}"; do
+            bash -n "$file"
+          done
+
+      - name: Verify phase checksums
+        run: |
+          set -euo pipefail
+          if [ -f generator/phases/SHA256SUMS ]; then
+            (cd generator/phases && sha256sum -c SHA256SUMS)
+          else
+            echo "No SHA256SUMS present, skipping"
+          fi
+
+      - name: Generate deterministic scan reports
+        run: |
+          set -euo pipefail
+          chmod +x generator/meta-master.sh scripts/full_logic_scan.py
+          ./generator/meta-master.sh scan
+
+      - name: Upload scan artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logic-scan-artifacts
+          path: |
+            reports/logic-scan-report.json
+            reports/logic-scan-upgrade-plan.md
+          if-no-files-found: warn

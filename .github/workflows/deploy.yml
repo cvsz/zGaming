@@ -21,7 +21,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAMESPACE: ${{ github.repository }}
 
 jobs:
   deploy:
@@ -55,14 +54,20 @@ jobs:
           echo "target_env=${TARGET_ENV}" >> "$GITHUB_OUTPUT"
           echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve lowercase image namespace
+        id: image_ns
+        run: |
+          set -euo pipefail
+          echo "value=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push backend image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/zgaming-backend:${{ steps.deploy_env.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/zgaming-backend:latest
+            ${{ env.REGISTRY }}/${{ steps.image_ns.outputs.value }}/zgaming-backend:${{ steps.deploy_env.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ steps.image_ns.outputs.value }}/zgaming-backend:latest
 
       - name: Package full source bundle
         run: |

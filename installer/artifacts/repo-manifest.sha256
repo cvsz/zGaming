@@ -59,7 +59,7 @@ ff1adfe5dd995b0f619f25418ddc3e49c994fc354e1e12c26fb8e180351fcf8a  ./generator/ph
 260ecd07ed58d5e11d7ff360fb7cdfa0d100dd06cb5e4d4bc005779782c89fca  ./generator/phases/97-responsible-gaming.sh
 5ab366239e3da74ff8d4342005c66375c81872082bed79a05ae17d51d006bfb8  ./generator/phases/98-risk-engine.sh
 2897ed23dae8927e96fa4ae9613dff71305fcd5fd550677f9a761871ba0f3316  ./generator/phases/99-license-mode.sh
-b5c19a092269a49380b322ea89ed5a454e52703b3d0b247199a2a52c1a5f854a  ./generator/phases/99-release.sh
+b5c19a092269a49380b322ea89ed5a454e52703b3d0b247199a2a52c1a5f854a  ./generator/phases/108-release.sh
 83241e9d55b2cecf588e28accf7a1e703672abc28db21c2f85650c1134aad5f4  ./generator/phases/SHA256SUMS
 37bd8fad61ba82ebd1af76a75a34b763b5b0eaabc02d9d1c71bea8368bf1e168  ./infra/kubernetes/api-deployment.yaml
 88b84c47897bf0a20a792c8d321c8917427ad42212b523d4b22d3781bfcf0a8f  ./install_and_run.sh

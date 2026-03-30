@@ -195,7 +195,7 @@ clean_install(mode):
 
 ```bash
 MM_FROM_PHASE=60-frontend.sh ./generator/meta-master.sh upgrade
-MM_FROM_PHASE=90-cloudflare.sh MM_TO_PHASE=99-release.sh ./generator/meta-master.sh all
+MM_FROM_PHASE=90-cloudflare.sh MM_TO_PHASE=108-release.sh ./generator/meta-master.sh all
 ```
 
 ---

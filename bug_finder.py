@@ -15,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,8 +45,50 @@ def run_command(cmd: list[str], cwd: Path, check: bool = False) -> subprocess.Co
 
 
 def run_tests(project_path: Path) -> TestResult:
-    result = run_command(["pytest", "--maxfail=5", "--disable-warnings", "-q"], cwd=project_path)
-    return TestResult(return_code=result.returncode, stdout=result.stdout, stderr=result.stderr)
+    test_args = ["--maxfail=5", "--disable-warnings", "-q"]
+    commands = [
+        ["pytest", *test_args],
+        [sys.executable, "-m", "pytest", *test_args],
+    ]
+
+    pytest_result: Optional[TestResult] = None
+    for cmd in commands:
+        try:
+            result = run_command(cmd, cwd=project_path)
+        except FileNotFoundError:
+            continue
+        pytest_result = TestResult(return_code=result.returncode, stdout=result.stdout, stderr=result.stderr)
+        break
+
+    if pytest_result is None:
+        err = (
+            "Unable to run tests because pytest was not found. "
+            "Install pytest (for example: `python3 -m pip install pytest`)."
+        )
+        return TestResult(return_code=127, stdout="", stderr=err)
+
+    shell_scripts = run_command(["git", "ls-files", "*.sh"], cwd=project_path)
+    scripts = [line.strip() for line in shell_scripts.stdout.splitlines() if line.strip()]
+    if not scripts:
+        return pytest_result
+
+    try:
+        shellcheck_result = run_command(["shellcheck", "-x", *scripts], cwd=project_path)
+    except FileNotFoundError:
+        warning = (
+            "\n[WARNING] shellcheck is not installed; skipping shell script linting. "
+            "Install shellcheck to enable this check."
+        )
+        return TestResult(
+            return_code=pytest_result.return_code,
+            stdout=pytest_result.stdout,
+            stderr=pytest_result.stderr + warning,
+        )
+
+    combined_stdout = pytest_result.stdout + ("\n" if pytest_result.stdout and shellcheck_result.stdout else "") + shellcheck_result.stdout
+    combined_stderr = pytest_result.stderr + ("\n" if pytest_result.stderr and shellcheck_result.stderr else "") + shellcheck_result.stderr
+    combined_code = pytest_result.return_code or shellcheck_result.returncode
+    return TestResult(return_code=combined_code, stdout=combined_stdout, stderr=combined_stderr)
 
 
 def analyze_output(stdout: str, stderr: str) -> list[str]:

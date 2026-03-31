@@ -273,3 +273,60 @@ CREATE TABLE IF NOT EXISTS fraud_events (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   KEY idx_fraud_user_created (user_id, created_at)
 );
+
+CREATE TABLE IF NOT EXISTS ops_controls (
+  control_name VARCHAR(64) PRIMARY KEY,
+  is_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  updated_by VARCHAR(128) NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+INSERT INTO ops_controls (control_name, is_enabled, updated_by)
+VALUES
+  ('withdrawals_disabled', 0, 'bootstrap'),
+  ('service_read_only', 0, 'bootstrap')
+ON DUPLICATE KEY UPDATE control_name=VALUES(control_name);
+
+CREATE TABLE IF NOT EXISTS user_restrictions (
+  user_id BIGINT PRIMARY KEY,
+  is_frozen TINYINT(1) NOT NULL DEFAULT 0,
+  reason VARCHAR(255) DEFAULT NULL,
+  updated_by VARCHAR(128) NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS emergency_actions (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  actor_id VARCHAR(128) NOT NULL,
+  action VARCHAR(128) NOT NULL,
+  target_type VARCHAR(64) NOT NULL,
+  target_id VARCHAR(128) NOT NULL,
+  reason VARCHAR(255) NOT NULL,
+  metadata JSON,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_emergency_created (created_at)
+);
+
+SET @internal_tx_unique := (
+  SELECT COUNT(*)
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'internal_transactions' AND index_name = 'uniq_internal_transaction_id'
+);
+SET @internal_tx_unique_sql := IF(@internal_tx_unique = 0,
+  'ALTER TABLE internal_transactions ADD UNIQUE KEY uniq_internal_transaction_id (transaction_id)',
+  'SELECT 1');
+PREPARE stmt_internal_tx_unique FROM @internal_tx_unique_sql;
+EXECUTE stmt_internal_tx_unique;
+DEALLOCATE PREPARE stmt_internal_tx_unique;
+
+SET @psp_tx_unique := (
+  SELECT COUNT(*)
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'psp_transactions' AND index_name = 'uniq_psp_transaction_id'
+);
+SET @psp_tx_unique_sql := IF(@psp_tx_unique = 0,
+  'ALTER TABLE psp_transactions ADD UNIQUE KEY uniq_psp_transaction_id (transaction_id)',
+  'SELECT 1');
+PREPARE stmt_psp_tx_unique FROM @psp_tx_unique_sql;
+EXECUTE stmt_psp_tx_unique;
+DEALLOCATE PREPARE stmt_psp_tx_unique;

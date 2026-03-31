@@ -3,11 +3,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../audit/AuditTrail.php';
+require_once __DIR__ . '/../observability/StructuredLogger.php';
 
 final class SettlementWorker
 {
+    private readonly StructuredLogger $logger;
     public function __construct(private readonly PDO $db, private readonly string $region, private readonly ?AuditTrail $auditTrail = null)
     {
+        $this->logger = new StructuredLogger('settlement-worker');
     }
 
     public function runOnce(): bool
@@ -28,8 +31,10 @@ final class SettlementWorker
         try {
             $this->processJob($job);
             $this->db->prepare("UPDATE settlement_queue SET status='done' WHERE id=? AND idempotency_key=?")->execute([$job['id'], $job['idempotency_key']]);
+            $this->logger->info('settlement_processed', ['queue_id' => (int)$job['id'], 'tx_id' => (string)$job['transaction_id'], 'region' => $this->region]);
         } catch (Throwable $e) {
             $this->db->prepare("UPDATE settlement_queue SET status='pending', retries=retries+1, last_error=? WHERE id=?")->execute([substr($e->getMessage(), 0, 250), $job['id']]);
+            $this->logger->error('settlement_failed', ['queue_id' => (int)$job['id'], 'tx_id' => (string)$job['transaction_id'], 'error' => substr($e->getMessage(), 0, 250), 'region' => $this->region]);
         }
 
         return true;

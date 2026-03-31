@@ -20,6 +20,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PHASES_DIR="$ROOT/generator/phases"
 LOG="$ROOT/meta-master.log"
+STATE_DIR="${MM_STATE_DIR:-$ROOT/.meta-master-state}"
+mkdir -p "$STATE_DIR"
 
 exec > >(tee -a "$LOG") 2>&1
 
@@ -150,6 +152,21 @@ run_phase() {
   echo "<<< DONE: $phase"
 }
 
+phase_state_file() {
+  local phase="$1"
+  echo "$STATE_DIR/${phase}.done"
+}
+
+is_phase_completed() {
+  local phase="$1"
+  [[ -f "$(phase_state_file "$phase")" ]]
+}
+
+mark_phase_completed() {
+  local phase="$1"
+  date -u +"%Y-%m-%dT%H:%M:%SZ" > "$(phase_state_file "$phase")"
+}
+
 should_skip_phase() {
   local phase="$1"
   if [[ "${MM_SKIP_DOCKER_ACTIONS:-0}" != "1" ]]; then
@@ -234,7 +251,18 @@ run_all() {
       continue
     fi
 
+    if [[ "${MM_FORCE_RUN_ALL:-0}" != "1" ]] && is_phase_completed "$phase"; then
+      echo
+      echo ">>> SKIPPING PHASE: $phase"
+      echo "--------------------------------------------------"
+      echo "ℹ phase already completed (state file exists)"
+      echo "<<< SKIPPED: $phase"
+      succeeded=$((succeeded + 1))
+      continue
+    fi
+
     run_phase "$phase"
+    mark_phase_completed "$phase"
     succeeded=$((succeeded + 1))
 
     if [[ "$phase" == "00-guard.sh" ]]; then
@@ -289,6 +317,7 @@ main() {
         fail "Missing phase name"
       fi
       run_phase "$2"
+      mark_phase_completed "$2"
       ;;
     list)
       printf '%s\n' "${PHASE_ORDER[@]}"

@@ -38,6 +38,25 @@ fi
 export BACKUP_KEY DB_PASS
 
 # --------------------------------------------------
+# Docker prerequisite checks
+# --------------------------------------------------
+require_docker_ready() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "❌ Docker is required but not installed"
+    echo "   Install docker + docker compose, then retry this phase."
+    exit 1
+  fi
+
+  if ! docker info >/dev/null 2>&1; then
+    echo "❌ Docker daemon is not reachable"
+    echo "   Start Docker and verify \`docker info\` succeeds."
+    exit 1
+  fi
+}
+
+require_docker_ready
+
+# --------------------------------------------------
 # Ensure DB container exists/runs
 # --------------------------------------------------
 ensure_db_container() {

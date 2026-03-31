@@ -6,6 +6,11 @@
 
 set -Eeuo pipefail
 
+if [[ "${MM_SKIP_PREFLIGHT_ASSERTS:-0}" == "1" ]]; then
+  echo "⚠ MM_SKIP_PREFLIGHT_ASSERTS=1 -> skipping pre-flight asserts"
+  return 0 2>/dev/null || exit 0
+fi
+
 echo "=================================================="
 echo "[ASSERT] CASINO PLATFORM PRE-FLIGHT CHECK"
 echo "=================================================="

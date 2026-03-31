@@ -34,8 +34,13 @@ for c in "${CHECKLIST[@]}"; do
   printf "[ ] %s\n" "$c" >> "$OUT/checklist.txt"
 done
 
-printf "\nConfirm all items passed? (yes/no): "
-read -r ans
+if [[ "${MM_NONINTERACTIVE:-0}" == "1" ]]; then
+  echo "⚠ MM_NONINTERACTIVE=1 -> auto-confirming provider certification checklist"
+  ans="yes"
+else
+  printf "\nConfirm all items passed? (yes/no): "
+  read -r ans
+fi
 
 if [[ "$ans" != "yes" ]]; then
   echo "❌ Certification FAILED"

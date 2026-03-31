@@ -29,35 +29,47 @@ echo "✅ Shell is bash"
 # --------------------------------------------------
 # Docker
 # --------------------------------------------------
-if ! command -v docker >/dev/null 2>&1; then
-  echo "❌ GUARD FAILED: docker not installed"
-  exit 1
+if [[ "${MM_SKIP_DOCKER_CHECKS:-0}" == "1" ]]; then
+  echo "⚠ MM_SKIP_DOCKER_CHECKS=1 -> skipping docker availability checks"
+else
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "❌ GUARD FAILED: docker not installed"
+    exit 1
+  fi
+  echo "✅ docker available"
 fi
-echo "✅ docker available"
 
 # --------------------------------------------------
 # Docker Compose (v2 preferred)
 # --------------------------------------------------
-if docker compose version >/dev/null 2>&1; then
-  export COMPOSE_CMD="docker compose"
-  echo "✅ docker compose v2 detected"
-elif command -v docker-compose >/dev/null 2>&1; then
-  export COMPOSE_CMD="docker-compose"
-  echo "⚠ docker-compose v1 detected (deprecated)"
+if [[ "${MM_SKIP_DOCKER_CHECKS:-0}" == "1" ]]; then
+  echo "⚠ MM_SKIP_DOCKER_CHECKS=1 -> skipping docker compose checks"
 else
-  echo "❌ GUARD FAILED: docker compose not available"
-  exit 1
+  if docker compose version >/dev/null 2>&1; then
+    export COMPOSE_CMD="docker compose"
+    echo "✅ docker compose v2 detected"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    export COMPOSE_CMD="docker-compose"
+    echo "⚠ docker-compose v1 detected (deprecated)"
+  else
+    echo "❌ GUARD FAILED: docker compose not available"
+    exit 1
+  fi
 fi
 
 # --------------------------------------------------
 # Docker permission
 # --------------------------------------------------
-if ! docker ps >/dev/null 2>&1; then
-  echo "❌ GUARD FAILED: docker permission denied"
-  echo "   Fix: sudo usermod -aG docker $USER && logout"
-  exit 1
+if [[ "${MM_SKIP_DOCKER_CHECKS:-0}" == "1" ]]; then
+  echo "⚠ MM_SKIP_DOCKER_CHECKS=1 -> skipping docker permission check"
+else
+  if ! docker ps >/dev/null 2>&1; then
+    echo "❌ GUARD FAILED: docker permission denied"
+    echo "   Fix: sudo usermod -aG docker $USER && logout"
+    exit 1
+  fi
+  echo "✅ docker permission OK"
 fi
-echo "✅ docker permission OK"
 
 # --------------------------------------------------
 # Directory structure

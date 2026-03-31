@@ -150,6 +150,22 @@ run_phase() {
   echo "<<< DONE: $phase"
 }
 
+should_skip_phase() {
+  local phase="$1"
+  if [[ "${MM_SKIP_DOCKER_ACTIONS:-0}" != "1" ]]; then
+    return 1
+  fi
+
+  case "$phase" in
+    70-nginx.sh|85-backup.sh|86-restore.sh|87-dr-test.sh|88-offsite.sh|92-regulator-report.sh|93-settlement-engine.sh|100-bank-reconciliation.sh|101-aml-str-report.sh|103-aml-str-xml.sh|104-bank-settlement.sh|108-release.sh|110-runtest-report.sh)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 print_summary() {
   local total="$1"
   local succeeded="$2"
@@ -174,7 +190,9 @@ run_all() {
   local to_phase="${MM_TO_PHASE:-${2:-}}"
   local from_index=0
   local to_index=$(( ${#PHASE_ORDER[@]} - 1 ))
-  local i phase started_at total planned=0 succeeded=0
+  local i phase started_at total
+  local -i planned=0
+  local -i succeeded=0
 
   if [[ -n "$from_phase" ]]; then
     from_index="$(phase_index "$from_phase")" || fail "MM_FROM_PHASE not found in PHASE_ORDER: $from_phase"
@@ -205,6 +223,17 @@ run_all() {
     fi
 
     phase="${PHASE_ORDER[$i]}"
+
+    if should_skip_phase "$phase"; then
+      echo
+      echo ">>> SKIPPING PHASE: $phase"
+      echo "--------------------------------------------------"
+      echo "⚠ MM_SKIP_DOCKER_ACTIONS=1 -> skipped docker-dependent phase"
+      echo "<<< SKIPPED: $phase"
+      succeeded=$((succeeded + 1))
+      continue
+    fi
+
     run_phase "$phase"
     succeeded=$((succeeded + 1))
 

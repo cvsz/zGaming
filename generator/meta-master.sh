@@ -44,7 +44,13 @@ EOM
         echo "Next recommended action: docker compose up -d --build"
         ;;
     stage)
-        "$ROOT/generator/stages/${2}.sh"
+        stage_file="$ROOT/generator/stages/${2}.sh"
+        if [[ -f "$stage_file" ]]; then
+            "$stage_file"
+        else
+            log "ERROR" "Stage not found: $2"
+            exit 1
+        fi
         ;;
     clean)
         rm -rf "$ROOT/.meta-master-state" "$ROOT/manifests" "$ROOT/logs" "$ROOT/reports"

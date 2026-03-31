@@ -1,0 +1,1 @@
+SHA2-256(/workspace/zGaming/installer/artifacts/release/SHA256SUMS)= 69b2bc896ca17f7461843de7cbc14494f3bcc078d78d653b3ec782c8c3196df1

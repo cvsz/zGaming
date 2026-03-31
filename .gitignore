@@ -6,3 +6,5 @@ pids/
 !.env.example
 
 !.env.production.example
+installer/reports/install-*.jsonl
+installer/artifacts/release/*.zip

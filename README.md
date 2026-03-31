@@ -135,6 +135,7 @@ Run only this scaffold phase:
 ./installer/zgaming-ultra-installer.sh quick
 ./installer/zgaming-ultra-installer.sh full
 ./installer/zgaming-ultra-installer.sh full-project
+./installer/zgaming-ultra-installer.sh no-cost
 ./installer/zgaming-ultra-installer.sh plan
 ./generator/meta-master.sh clean-installer full
 ```
@@ -148,7 +149,9 @@ Run only this scaffold phase:
 - สร้าง SBOM-lite (SPDX JSON): `installer/artifacts/sbom-lite.spdx.json`
 - รองรับ diagnostics mode สำหรับ container/network health
 - มีโหมด `full-project` สำหรับ hardening checks + vulnerability scan + release packaging
+- มีโหมด `no-cost` สำหรับสร้าง metadata/compliance/release artifacts โดยไม่บังคับ Docker runtime และไม่บังคับสร้าง release bundle `.zip`
 - สร้าง audit report แบบ structured (`installer/reports/audit-report.json`) และ workflow plan (`installer/artifacts/workflow-plan.txt`)
+- สร้าง infrastructure inventory อัตโนมัติ (`installer/artifacts/infrastructure-inventory.json`) สำหรับ baseline host + Ubuntu environments
 
 Pseudo-workflow:
 
@@ -158,6 +161,7 @@ clean_install(mode):
   doctor-check deterministic platform baseline
   scan repository files => hash manifest
   evaluate compliance baselines => structured report
+  emit infrastructure inventory for host/vm/subsystem
   generate SPDX-lite SBOM artifact
   if mode == full: run full meta-master installer + diagnostics
 ```

@@ -4,6 +4,7 @@ clean_install(mode):
   extract metadata + immutable file hash manifest
   execute compliance and security baseline checks
   emit SPDX-lite SBOM + structured audit report
+  if mode == no-cost: run metadata/compliance pipeline only (no Docker dependency)
   if mode in [full, full-project]: run generator installer
   run diagnostics for container/network/time-sync and local stack health
   execute chaos callback storm test for idempotency validation

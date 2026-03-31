@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-03-31T11:40:40Z",
+  "host": {
+    "name": "ZEAZDEV-CORE",
+    "cpu": "AMD Ryzen 5 3400G (4 Cores / 8 Threads)",
+    "base_frequency_ghz": 3.85,
+    "primary_os": "Microsoft Windows 11 Pro for Workstations (x64)"
+  },
+  "environments": [
+    {
+      "name": "Ubuntu 24.04 LTS on VMware",
+      "storage": "NVMe 500GB",
+      "memory": "16GB RAM",
+      "purpose": "Hardware-isolated sandbox for smart contract testing and fixed-resource node operations"
+    },
+    {
+      "name": "Ubuntu 24.04 LTS on WSL2",
+      "purpose": "Primary development environment on Windows for fast terminal workflows with viem/wagmi tooling"
+    }
+  ]
+}

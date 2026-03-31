@@ -1,0 +1,5 @@
+d7d2d34512fd8f36d11b7a9eda2ca962e4822d4ae448721ce46bb3e88854e36c  /workspace/zGaming/installer/artifacts/repo-manifest.sha256
+bb2a4de13c9543f58febbb52facde75490695a6c9d1b1e484ff539ff02fd326e  /workspace/zGaming/installer/artifacts/sbom-lite.spdx.json
+30b2888f98e0cc630d32733572f8b8f114b9358044cf52bcad963f64d95c7a5e  /workspace/zGaming/installer/reports/compliance-report.json
+156a65dad0ea6ff57a6ab870b201eeafc3cbaa938c32f206fe38d5262948530c  /workspace/zGaming/installer/reports/audit-report.json
+7184c4de35348e51a81cd28b91b920d0504e6012eeb46441f0c450297c8419a9  /workspace/zGaming/installer/artifacts/infrastructure-inventory.json

@@ -13,6 +13,7 @@ COMPLIANCE_FILE="$REPORT_DIR/compliance-report.json"
 AUDIT_FILE="$REPORT_DIR/audit-report.json"
 RELEASE_DIR="$ARTIFACT_DIR/release"
 WORKFLOW_FILE="$ARTIFACT_DIR/workflow-plan.txt"
+INFRA_FILE="$ARTIFACT_DIR/infrastructure-inventory.json"
 SHA256SUMS_FILE="$RELEASE_DIR/SHA256SUMS"
 SIGNATURE_FILE="$RELEASE_DIR/SHA256SUMS.sig"
 
@@ -40,6 +41,7 @@ Usage:
   ./installer/zgaming-ultra-installer.sh full
   ./installer/zgaming-ultra-installer.sh full-project
   ./installer/zgaming-ultra-installer.sh diagnostics
+  ./installer/zgaming-ultra-installer.sh no-cost
   ./installer/zgaming-ultra-installer.sh audit
   ./installer/zgaming-ultra-installer.sh package
   ./installer/zgaming-ultra-installer.sh plan
@@ -55,6 +57,7 @@ clean_install(mode):
   extract metadata + immutable file hash manifest
   execute compliance and security baseline checks
   emit SPDX-lite SBOM + structured audit report
+  if mode == no-cost: run metadata/compliance pipeline only (no Docker dependency)
   if mode in [full, full-project]: run generator installer
   run diagnostics for container/network/time-sync and local stack health
   execute chaos callback storm test for idempotency validation
@@ -141,6 +144,32 @@ generate_sbom_lite() {
 EOF_SBOM
 }
 
+emit_infrastructure_inventory() {
+  cat > "$INFRA_FILE" <<EOF_INFRA
+{
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "host": {
+    "name": "ZEAZDEV-CORE",
+    "cpu": "AMD Ryzen 5 3400G (4 Cores / 8 Threads)",
+    "base_frequency_ghz": 3.85,
+    "primary_os": "Microsoft Windows 11 Pro for Workstations (x64)"
+  },
+  "environments": [
+    {
+      "name": "Ubuntu 24.04 LTS on VMware",
+      "storage": "NVMe 500GB",
+      "memory": "16GB RAM",
+      "purpose": "Hardware-isolated sandbox for smart contract testing and fixed-resource node operations"
+    },
+    {
+      "name": "Ubuntu 24.04 LTS on WSL2",
+      "purpose": "Primary development environment on Windows for fast terminal workflows with viem/wagmi tooling"
+    }
+  ]
+}
+EOF_INFRA
+}
+
 compliance_checks() {
   local strict_mode_count phase_count has_compose has_k8s has_chaos has_wallet has_ledger
   strict_mode_count="$(find "$ROOT/generator" -type f -name '*.sh' -exec awk 'FNR==1, FNR==20 {print}' {} + | rg -c 'set -Eeuo pipefail' || true)"
@@ -164,7 +193,8 @@ compliance_checks() {
     "has_kubernetes_folder": $has_k8s,
     "has_chaos_callback_test": $has_chaos,
     "has_multichain_wallet_module": $has_wallet,
-    "has_idempotent_ledger_module": $has_ledger
+    "has_idempotent_ledger_module": $has_ledger,
+    "has_infrastructure_inventory": $( [[ -f "$INFRA_FILE" ]] && echo true || echo false )
   }
 }
 EOF_COMPLIANCE
@@ -196,6 +226,7 @@ write_audit_report() {
     "compliance": "$COMPLIANCE_FILE",
     "sbom": "$SBOM_FILE",
     "workflow": "$WORKFLOW_FILE",
+    "infrastructure_inventory": "$INFRA_FILE",
     "sha256sums": "$SHA256SUMS_FILE",
     "signature": "$SIGNATURE_FILE"
   }
@@ -204,22 +235,24 @@ EOF_AUDIT
 }
 
 build_release_package() {
-  local version ts bundle
+  local version ts bundle emit_bundle
   version="$(cat "$ROOT/generator/VERSION" 2>/dev/null || echo "unknown")"
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
   bundle="$RELEASE_DIR/zgaming-installer-bundle-${version}-${ts}.zip"
-
-  (
-    cd "$ROOT"
-    SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1704067200}" \
-      zip -X -q -r "$bundle" \
-      README.md CHANGELOG.md docs \
-      installer/reports installer/artifacts generator/VERSION scripts
-  )
+  emit_bundle="${INSTALLER_EMIT_BUNDLE:-1}"
 
   : > "$SHA256SUMS_FILE"
-  sha256sum "$bundle" >> "$SHA256SUMS_FILE"
-  sha256sum "$MANIFEST_FILE" "$SBOM_FILE" "$COMPLIANCE_FILE" "$AUDIT_FILE" >> "$SHA256SUMS_FILE"
+  if [[ "$emit_bundle" == "1" ]]; then
+    (
+      cd "$ROOT"
+      SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1704067200}" \
+        zip -X -q -r "$bundle" \
+        README.md CHANGELOG.md docs \
+        installer/reports installer/artifacts generator/VERSION scripts
+    )
+    sha256sum "$bundle" >> "$SHA256SUMS_FILE"
+  fi
+  sha256sum "$MANIFEST_FILE" "$SBOM_FILE" "$COMPLIANCE_FILE" "$AUDIT_FILE" "$INFRA_FILE" >> "$SHA256SUMS_FILE"
 
   if [[ -n "${RELEASE_SIGNING_KEY:-}" && -f "${RELEASE_SIGNING_KEY}" ]]; then
     openssl dgst -sha256 -sign "$RELEASE_SIGNING_KEY" -out "$SIGNATURE_FILE" "$SHA256SUMS_FILE"
@@ -255,6 +288,7 @@ run_quick() {
   (cd "$ROOT" && bash ./generator/meta-master.sh doctor)
   extract_repo_metadata
   compliance_checks
+  emit_infrastructure_inventory
   generate_sbom_lite
   write_audit_report
 }
@@ -267,6 +301,17 @@ run_full() {
   build_release_package
 }
 
+run_no_cost() {
+  require_bins bash git sha256sum awk sed find curl rg zip openssl
+  print_plan
+  extract_repo_metadata
+  compliance_checks
+  emit_infrastructure_inventory
+  generate_sbom_lite
+  write_audit_report
+  INSTALLER_EMIT_BUNDLE="${INSTALLER_EMIT_BUNDLE:-0}" build_release_package
+}
+
 run_full_project() {
   run_full
   if command -v trivy >/dev/null 2>&1; then
@@ -277,16 +322,17 @@ run_full_project() {
 }
 
 menu() {
-  echo "Select workflow: 1) Quick 2) Full 3) Full Project 4) Diagnostics 5) Audit 6) Package 7) Plan"
-  read -r -p "Choice [1-7]: " choice
+  echo "Select workflow: 1) Quick 2) Full 3) Full Project 4) Diagnostics 5) No-Cost 6) Audit 7) Package 8) Plan"
+  read -r -p "Choice [1-8]: " choice
   case "$choice" in
     1) run_quick ;;
     2) run_full ;;
     3) run_full_project ;;
     4) run_diagnostics ;;
-    5) extract_repo_metadata; compliance_checks; generate_sbom_lite; print_plan; write_audit_report ;;
-    6) build_release_package ;;
-    7) print_plan ;;
+    5) run_no_cost ;;
+    6) extract_repo_metadata; compliance_checks; emit_infrastructure_inventory; generate_sbom_lite; print_plan; write_audit_report ;;
+    7) build_release_package ;;
+    8) print_plan ;;
     *) echo "Invalid choice"; exit 1 ;;
   esac
 }
@@ -299,7 +345,8 @@ main() {
     full) run_full ;;
     full-project) run_full_project ;;
     diagnostics) require_bins bash git sha256sum awk sed find curl docker rg; check_runtime; run_diagnostics ;;
-    audit) require_bins bash git sha256sum awk sed find curl rg; extract_repo_metadata; compliance_checks; generate_sbom_lite; print_plan; write_audit_report ;;
+    no-cost) run_no_cost ;;
+    audit) require_bins bash git sha256sum awk sed find curl rg; extract_repo_metadata; compliance_checks; emit_infrastructure_inventory; generate_sbom_lite; print_plan; write_audit_report ;;
     package) require_bins bash git sha256sum zip openssl; build_release_package ;;
     plan) print_plan ;;
     menu) require_bins bash git sha256sum awk sed find curl docker rg zip openssl; check_runtime; menu ;;
@@ -312,6 +359,7 @@ main() {
   echo "🧾 Compliance: $COMPLIANCE_FILE"
   echo "🧪 Audit: $AUDIT_FILE"
   echo "🪪 SBOM: $SBOM_FILE"
+  echo "🏗️ Infra Inventory: $INFRA_FILE"
   echo "🔐 SHA256SUMS: $SHA256SUMS_FILE"
   echo "✍️ Signature: $SIGNATURE_FILE"
 }

@@ -162,6 +162,17 @@ clean_install(mode):
   if mode == full: run full meta-master installer + diagnostics
 ```
 
+
+## 🧱 Monorepo Workspace (Turbo + pnpm)
+
+Repository now includes workspace orchestration files:
+
+- `pnpm-workspace.yaml`
+- `turbo.json`
+- root `package.json` scripts for build/lint/test/scan
+
+This is the migration baseline for clean architecture separation across `apps/`, `services/`, `packages/`, and `factory/` modules.
+
 ## ⚙️ Requirements
 
 ขั้นต่ำ:

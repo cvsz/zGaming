@@ -14,6 +14,7 @@ echo "[PHASE 110] RUN TEST & GO-LIVE REPORT"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="$ROOT/reports/go-live-test-$(date +%F-%H%M%S)"
 mkdir -p "$OUT"/{logs,checks}
+DB_PASSWORD="${DB_PASSWORD:-${DB_PASS:-}}"
 
 PASS=true
 
@@ -45,13 +46,13 @@ fi
 echo "[2] Wallet idempotency"
 
 REF="test-dup-001"
-docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -e "
+docker exec casino-db env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" -e "
 INSERT INTO wallet_ledger (user_id,provider,amount,currency,fx_rate,base_amount,ref)
 VALUES (1,'TEST',10,'USD',1,10,'$REF')
 ON DUPLICATE KEY UPDATE ref=ref;
 "
 
-COUNT=$(docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -sse "
+COUNT=$(docker exec casino-db env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" -sse "
 SELECT COUNT(*) FROM wallet_ledger WHERE ref='$REF';
 ")
 
@@ -66,10 +67,10 @@ fi
 # ------------------------------------------------------------
 echo "[3] Provider wallet isolation"
 
-BAL_A=$(docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -sse "
+BAL_A=$(docker exec casino-db env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" -sse "
 SELECT balance FROM wallets WHERE user_id=1 AND provider='PRAGMATIC' LIMIT 1;
 ")
-BAL_B=$(docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -sse "
+BAL_B=$(docker exec casino-db env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" -sse "
 SELECT balance FROM wallets WHERE user_id=1 AND provider='PG' LIMIT 1;
 ")
 
@@ -84,10 +85,10 @@ fi
 # ------------------------------------------------------------
 echo "[4] FX snapshot lock"
 
-FX1=$(docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -sse "
+FX1=$(docker exec casino-db env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" -sse "
 SELECT fx_rate FROM wallet_ledger ORDER BY id DESC LIMIT 1;
 ")
-FX2=$(docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -sse "
+FX2=$(docker exec casino-db env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" -sse "
 SELECT fx_rate FROM wallet_ledger ORDER BY id DESC LIMIT 1;
 ")
 
@@ -102,7 +103,7 @@ fi
 # ------------------------------------------------------------
 echo "[5] Settlement consistency"
 
-MISMATCH=$(docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -sse "
+MISMATCH=$(docker exec casino-db env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" -sse "
 SELECT COUNT(*) FROM (
  SELECT provider,
         SUM(amount) ledger,
@@ -147,7 +148,7 @@ fi
 # ------------------------------------------------------------
 echo "[8] Compliance"
 
-AML=$(docker exec casino-db mysql -u$DB_USER -p$DB_PASS $DB_NAME -sse "
+AML=$(docker exec casino-db env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" -sse "
 SELECT COUNT(*) FROM wallet_ledger WHERE amount > ${AML_THRESHOLD:-10000};
 ")
 

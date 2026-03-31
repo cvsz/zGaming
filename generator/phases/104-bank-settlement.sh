@@ -27,7 +27,7 @@ source "$BACKEND_ENV"
 set +a
 
 DB_USER="${DB_USER:-casino}"
-DB_PASS="${DB_PASS:-casino}"
+DB_PASSWORD="${DB_PASSWORD:-${DB_PASS:-casino}}"
 DB_NAME="${DB_NAME:-casino}"
 DB_CONTAINER="${DB_CONTAINER:-casino-db}"
 
@@ -38,7 +38,7 @@ for cmd in docker zip; do
   fi
 done
 
-docker exec "$DB_CONTAINER" mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "
+docker exec "$DB_CONTAINER" env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" -e "
 SELECT provider, SUM(net) net_amount
 FROM provider_settlement
 WHERE date='$DATE' AND status='open'

@@ -22,6 +22,7 @@ PHASES_DIR="$ROOT/generator/phases"
 LOG="$ROOT/meta-master.log"
 STATE_DIR="${MM_STATE_DIR:-$ROOT/.meta-master-state}"
 mkdir -p "$STATE_DIR"
+ENV_FILE="$ROOT/.env"
 
 exec > >(tee -a "$LOG") 2>&1
 
@@ -141,11 +142,25 @@ phase_index() {
 }
 
 validate_env() {
-  export DB_USER="${DB_USER:-casino}"
-  export DB_PASS="${DB_PASS:-casino}"
-  export DB_NAME="${DB_NAME:-casino}"
+  if [[ ! -f "$ENV_FILE" ]]; then
+    cat > "$ENV_FILE" <<'EOF'
+MYSQL_ROOT_PASSWORD=
+DB_NAME=
+DB_USER=
+DB_PASSWORD=
+EOF
+    fail "Created $ENV_FILE template. Fill required values and re-run."
+  fi
 
-  local -a required_vars=("DB_USER" "DB_PASS" "DB_NAME")
+  set -o allexport
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +o allexport
+
+  export DB_PASS="${DB_PASS:-${DB_PASSWORD:-}}"
+  export DB_PASSWORD="${DB_PASSWORD:-${DB_PASS:-}}"
+
+  local -a required_vars=("MYSQL_ROOT_PASSWORD" "DB_NAME" "DB_USER" "DB_PASSWORD")
   local var
 
   for var in "${required_vars[@]}"; do
@@ -177,6 +192,68 @@ run_phase_safe() {
   fi
 
   echo "<<< DONE: $phase"
+}
+
+wait_for_docker_healthy() {
+  local service="$1"
+  local timeout_seconds="${2:-120}"
+  local elapsed=0
+  local cid health
+
+  cid="$(docker compose -f "$ROOT/docker-compose.yml" ps -q "$service" 2>/dev/null || true)"
+  [[ -n "$cid" ]] || return 0
+
+  while (( elapsed < timeout_seconds )); do
+    health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || true)"
+    if [[ "$health" == "healthy" || "$health" == "none" ]]; then
+      return 0
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+
+  fail "Docker service '$service' did not become healthy in ${timeout_seconds}s"
+}
+
+wait_for_mysql_ready() {
+  local service="${1:-db}"
+  local timeout_seconds="${2:-120}"
+  local elapsed=0
+
+  while (( elapsed < timeout_seconds )); do
+    if docker compose -f "$ROOT/docker-compose.yml" exec -T \
+      -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$service" \
+      mysqladmin ping -uroot --silent >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+
+  fail "MySQL readiness check failed after ${timeout_seconds}s"
+}
+
+init_mysql_if_needed() {
+  if [[ "${MM_SKIP_DOCKER_ACTIONS:-0}" == "1" ]]; then
+    echo "⚠ MM_SKIP_DOCKER_ACTIONS=1 -> skipping MySQL bootstrap"
+    return 0
+  fi
+
+  docker compose -f "$ROOT/docker-compose.yml" up -d db >/dev/null
+  wait_for_docker_healthy "db"
+  wait_for_mysql_ready "db"
+
+  docker compose -f "$ROOT/docker-compose.yml" exec -T \
+    -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" db \
+    mysql -uroot -e "
+CREATE DATABASE IF NOT EXISTS \`$DB_NAME\`;
+CREATE USER IF NOT EXISTS '$DB_USER'@'%' IDENTIFIED BY '$DB_PASSWORD';
+ALTER USER '$DB_USER'@'%' IDENTIFIED BY '$DB_PASSWORD';
+GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'%';
+FLUSH PRIVILEGES;
+" >/dev/null
+
+  echo "✅ MySQL initialized (idempotent)"
 }
 
 phase_state_file() {
@@ -213,6 +290,8 @@ check_dependencies() {
 
   deps="$dep_line"
   for dep in $deps; do
+    [[ -f "$PHASES_DIR/$dep" ]] || fail "Dependency phase file not found for $phase: $dep"
+    [[ "$dep" != "$phase" ]] || fail "Phase $phase cannot depend on itself"
     if ! is_phase_completed "$dep"; then
       fail "Dependency not satisfied for $phase: $dep"
     fi
@@ -233,6 +312,29 @@ run_readiness_check() {
   fi
 
   echo "✅ Readiness passed for $phase"
+}
+
+run_k8s_readiness_if_present() {
+  if ! command -v kubectl >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [[ ! -d "$ROOT/infra/kubernetes" ]]; then
+    return 0
+  fi
+
+  local manifest
+  while IFS= read -r manifest; do
+    if ! rg -n "kind:[[:space:]]*Deployment" "$manifest" >/dev/null 2>&1; then
+      continue
+    fi
+    local name ns
+    name="$(awk '/^[[:space:]]*name:[[:space:]]*/{print $2; exit}' "$manifest")"
+    ns="$(awk '/^[[:space:]]*namespace:[[:space:]]*/{print $2; exit}' "$manifest")"
+    [[ -n "$name" ]] || continue
+    ns="${ns:-default}"
+    kubectl rollout status "deployment/$name" -n "$ns" --timeout=120s >/dev/null
+  done < <(find "$ROOT/infra/kubernetes" -type f \( -name '*.yaml' -o -name '*.yml' \))
 }
 
 should_skip_phase() {
@@ -283,6 +385,7 @@ run_all() {
   local -i skipped=0
 
   validate_env
+  init_mysql_if_needed
 
   if [[ -n "$from_phase" ]]; then
     from_index="$(phase_index "$from_phase")" || fail "MM_FROM_PHASE not found in PHASE_ORDER: $from_phase"
@@ -337,6 +440,7 @@ run_all() {
     check_dependencies "$phase"
     run_phase_safe "$phase"
     run_readiness_check "$phase"
+    run_k8s_readiness_if_present
     mark_phase_completed "$phase"
     succeeded=$((succeeded + 1))
 
@@ -391,9 +495,12 @@ main() {
       if [[ $# -lt 2 ]]; then
         fail "Missing phase name"
       fi
+      validate_env
+      init_mysql_if_needed
       check_dependencies "$2"
       run_phase_safe "$2"
       run_readiness_check "$2"
+      run_k8s_readiness_if_present
       mark_phase_completed "$2"
       ;;
     list)

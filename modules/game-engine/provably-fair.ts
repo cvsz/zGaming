@@ -28,5 +28,5 @@ export function verifyServerSeedReveal(revealedSeed: string, committedHash: stri
 }
 
 export function buildSeedTrace(serverSeed: string, clientSeed: string, nonce: number): string {
-  return `${serverSeed}:${clientSeed}:${nonce}`;
+  return `${sha256(serverSeed)}:${clientSeed}:${nonce}`;
 }

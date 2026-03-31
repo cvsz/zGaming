@@ -5,6 +5,7 @@ export interface WebhookValidationInput {
   timestamp: string;
   signature: string;
   secret: string;
+  eventId: string;
   maxAgeMs?: number;
   nowMs?: number;
 }
@@ -22,6 +23,9 @@ export function verifyWebhookSignature(input: WebhookValidationInput): boolean {
   }
 
   if (Math.abs(nowMs - timestampMs) > maxAgeMs) {
+    return false;
+  }
+  if (!/^[A-Za-z0-9:_-]{8,128}$/.test(input.eventId)) {
     return false;
   }
 

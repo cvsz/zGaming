@@ -4,6 +4,63 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/auth.php';
 
+function consume_nonce(string $nonceHash, int $issuedAt, int $ttlSeconds): bool
+{
+    $storageDir = __DIR__ . '/../storage/auth';
+    $nonceFile = $storageDir . '/used_nonces.log';
+    if (!is_dir($storageDir) && !mkdir($storageDir, 0700, true) && !is_dir($storageDir)) {
+        throw new RuntimeException('FAILED_TO_CREATE_NONCE_STORAGE');
+    }
+
+    $handle = fopen($nonceFile, 'c+');
+    if ($handle === false) {
+        throw new RuntimeException('FAILED_TO_OPEN_NONCE_STORAGE');
+    }
+
+    try {
+        if (!flock($handle, LOCK_EX)) {
+            throw new RuntimeException('FAILED_TO_LOCK_NONCE_STORAGE');
+        }
+
+        $now = time();
+        $minIssuedAt = $now - $ttlSeconds;
+        $freshLines = [];
+        $isReplay = false;
+
+        rewind($handle);
+        while (($line = fgets($handle)) !== false) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+            [$existingHash, $existingIssuedAt] = explode(',', $line, 2) + ['', '0'];
+            $existingIssuedAtInt = (int)$existingIssuedAt;
+            if ($existingIssuedAtInt < $minIssuedAt) {
+                continue;
+            }
+            if ($existingHash === $nonceHash) {
+                $isReplay = true;
+            }
+            $freshLines[] = "{$existingHash},{$existingIssuedAtInt}";
+        }
+
+        if ($isReplay) {
+            return false;
+        }
+
+        $freshLines[] = "{$nonceHash},{$issuedAt}";
+
+        ftruncate($handle, 0);
+        rewind($handle);
+        fwrite($handle, implode(PHP_EOL, $freshLines) . PHP_EOL);
+
+        return true;
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+}
+
 /**
  * Stateless SIWE-like login endpoint with deterministic nonce validation.
  *
@@ -71,6 +128,11 @@ try {
         json_response(401, ['error' => 'INVALID_SIGNATURE']);
     }
 
+    $nonceHash = hash_nonce($nonce);
+    if (!consume_nonce($nonceHash, $issuedAt, $ttlSeconds)) {
+        json_response(409, ['error' => 'NONCE_REPLAY_DETECTED']);
+    }
+
     $jwtSecret = auth_env('JWT_SECRET');
     $exp = $now + $ttlSeconds;
 
@@ -81,7 +143,7 @@ try {
         'iat' => $now,
         'exp' => $exp,
         'nbf' => $now - $clockSkewSeconds,
-        'jti' => hash_nonce($nonce),
+        'jti' => $nonceHash,
         'chain' => $chain,
         'chainId' => $chainId,
         'role' => $role,
@@ -98,7 +160,7 @@ try {
             'subject' => strtolower($walletAddress),
             'chain' => $chain,
             'chainId' => $chainId,
-            'nonceHash' => hash_nonce($nonce),
+            'nonceHash' => $nonceHash,
         ],
     ]);
 } catch (JsonException) {

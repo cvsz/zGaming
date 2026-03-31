@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import jwt from "@fastify/jwt";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { verifyWebhookSignature } from "./webhook-auth";
 
@@ -8,6 +9,8 @@ async function startServer(): Promise<void> {
   const app = Fastify({ logger: true });
   const jwtSecret = process.env.JWT_SECRET;
   const internalWebhookSecret = process.env.INTERNAL_WEBHOOK_SECRET;
+  const adminProvisioningSecret = process.env.INTERNAL_ADMIN_TOKEN;
+  const seenWebhookEvents = new Map<string, number>();
 
   if (!jwtSecret || jwtSecret === "change-me") {
     throw new Error("JWT_SECRET must be set to a strong non-default value");
@@ -15,6 +18,9 @@ async function startServer(): Promise<void> {
 
   if (!internalWebhookSecret) {
     throw new Error("INTERNAL_WEBHOOK_SECRET must be configured");
+  }
+  if (!adminProvisioningSecret) {
+    throw new Error("INTERNAL_ADMIN_TOKEN must be configured");
   }
 
   await app.register(rateLimit, {
@@ -35,6 +41,12 @@ async function startServer(): Promise<void> {
 
   app.post("/auth/token", async (request: any) => {
     const payload = loginSchema.parse(request.body);
+    const internalAuthHeader = request.headers["x-internal-auth"];
+    const isPrivilegedRole = payload.role !== "player";
+
+    if (isPrivilegedRole && internalAuthHeader !== adminProvisioningSecret) {
+      throw app.httpErrors.unauthorized("privileged role minting requires x-internal-auth");
+    }
     const token = await request.server.jwt.sign(payload, { expiresIn: "15m" });
 
     return {
@@ -46,8 +58,9 @@ async function startServer(): Promise<void> {
   app.post("/internal/webhook", async (request: any, reply: any) => {
     const signature = request.headers["x-internal-signature"];
     const timestamp = request.headers["x-internal-timestamp"];
+    const eventId = request.headers["x-internal-event-id"];
 
-    if (typeof signature !== "string" || typeof timestamp !== "string") {
+    if (typeof signature !== "string" || typeof timestamp !== "string" || typeof eventId !== "string") {
       return reply.code(401).send({ error: "Missing webhook signature headers" });
     }
 
@@ -57,10 +70,23 @@ async function startServer(): Promise<void> {
       timestamp,
       signature,
       secret: internalWebhookSecret,
+      eventId,
     });
 
     if (!valid) {
       return reply.code(401).send({ error: "Invalid webhook signature" });
+    }
+    const now = Date.now();
+    const ttlMs = 10 * 60 * 1000;
+    const existingTs = seenWebhookEvents.get(eventId);
+    if (existingTs && now - existingTs < ttlMs) {
+      return reply.code(409).send({ error: "Replay detected for webhook event id" });
+    }
+    seenWebhookEvents.set(eventId, now);
+    for (const [id, ts] of seenWebhookEvents.entries()) {
+      if (now - ts > ttlMs) {
+        seenWebhookEvents.delete(id);
+      }
     }
 
     return { accepted: true };
@@ -77,7 +103,7 @@ async function startServer(): Promise<void> {
         }
       },
     },
-    async () => ({ data: "protected" }),
+    async () => ({ data: "protected", requestId: randomUUID() }),
   );
 
   await app.listen({ port: 3000, host: "0.0.0.0" });

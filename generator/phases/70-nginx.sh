@@ -6,6 +6,7 @@ echo "[PHASE 70] NGINX – Reverse Proxy / Static / Security"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 NGINX_DIR="$ROOT/nginx"
+NGINX_PORT="${NGINX_HOST_PORT:-8080}"
 
 require_docker_ready() {
   if ! command -v docker >/dev/null 2>&1; then
@@ -41,6 +42,13 @@ MSG
 require_docker_ready
 warn_linux_desktop_credsstore
 
+if command -v ss >/dev/null 2>&1 && ss -ltn "( sport = :$NGINX_PORT )" | grep -q ":$NGINX_PORT"; then
+  if ! docker ps --format '{{.Names}}' | grep -Fxq casino-nginx; then
+    echo "❌ Port $NGINX_PORT is already in use. Set NGINX_HOST_PORT to a free port."
+    exit 1
+  fi
+fi
+
 mkdir -p "$NGINX_DIR"
 
 cat > "$NGINX_DIR/nginx.conf" <<'CONF'
@@ -61,8 +69,9 @@ docker pull nginx:stable >/dev/null
 
 docker run -d \
   --name casino-nginx \
-  -p 80:80 \
+  -p "$NGINX_PORT:80" \
+  --restart unless-stopped \
   -v "$NGINX_DIR/nginx.conf:/etc/nginx/nginx.conf:ro" \
   nginx:stable
 
-echo "✅ PHASE 70 COMPLETE – NGINX ready"
+echo "✅ PHASE 70 COMPLETE – NGINX ready on port $NGINX_PORT"

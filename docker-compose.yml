@@ -1,6 +1,6 @@
 services:
   db:
-    image: mysql:8.4
+    image: mysql:8.4.0
     container_name: casino-db
     env_file:
       - ./.env
@@ -11,6 +11,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     volumes:
       - db-data:/var/lib/mysql
+    command: --innodb-strict-mode=ON --default-authentication-plugin=caching_sha2_password
     ports:
       - "3306:3306"
     healthcheck:
@@ -20,7 +21,7 @@ services:
       retries: 30
 
   backend:
-    image: php:8.3-apache
+    image: php:8.4-apache
     container_name: casino-backend
     depends_on:
       db:
@@ -39,7 +40,7 @@ services:
       retries: 10
 
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:1.27.5-alpine
     container_name: casino-nginx
     depends_on:
       backend:

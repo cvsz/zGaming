@@ -1,109 +1,131 @@
 # 🧠 MASTER COPILOT INSTRUCTIONS — zGaming (INSTITUTIONAL GRADE)
 
-## ⚠️ SYSTEM CLASSIFICATION
+---
 
-This repository is a:
+# ⚠️ SYSTEM CLASSIFICATION
 
-> **Real-money financial + gaming system**
+zGaming is a:
 
-All generated code MUST satisfy:
+> **Real-money gaming + fintech system**
 
-* financial correctness
-* auditability
-* exploit resistance
-* deterministic execution
+This system must operate with guarantees equivalent to:
 
-Failure = **real monetary loss + regulatory breach**
+* payment processors
+* crypto custody platforms
+* regulated casino backends
+
+⚠️ Failure results in:
+
+* financial loss
+* regulatory violations
+* security breaches
 
 ---
 
-# 🔒 GLOBAL ENFORCEMENT RULES
+# 🚨 CORE PRINCIPLE
 
-## ❌ NEVER DO
+> **CORRECTNESS > SECURITY > AUDITABILITY > PERFORMANCE**
 
-* Use floating point for money
-* Update/delete ledger entries
-* Skip transactions for wallet operations
-* Trust external input (API/webhook)
-* Log secrets (keys, passwords)
-* Introduce non-idempotent operations
-* Use in-memory state for financial logic
-
-## ✅ ALWAYS DO
-
-* Use append-only ledger
-* Enforce idempotency
-* Use transactions + row locks
-* Validate all inputs strictly
-* Use environment variables
-* Log every critical action
-* Design for replay safety
+Never optimize before correctness is proven.
 
 ---
 
-# 💰 FINANCIAL CORRECTNESS (CRITICAL)
+# 💰 FINANCIAL CORRECTNESS (NON-NEGOTIABLE)
 
-## Ledger Rules
+## Ledger Model
 
-* Ledger = **source of truth**
-* Balance = derived ONLY
+* Ledger = **source of truth (append-only)**
+* Balance = **derived state**
 
-### Required invariants:
+## ❌ FORBIDDEN
 
-* sum(ledger) == wallet balance
-* no negative balance
-* no duplicate ref_id per user
+* UPDATE or DELETE on `wallet_ledger`
+* Floating point arithmetic
+* Skipping idempotency
+* Direct DB mutation bypassing services
+
+## ✅ REQUIRED
+
+* BCMath / string-based money handling
+* Global `transaction_id` (UUID)
+* Idempotency keys
+* ACID transactions
 
 ---
 
-## Transaction Rules
+## DOUBLE-SPEND PREVENTION
 
-Every wallet operation MUST:
+Every financial operation MUST:
 
 1. Check idempotency
-2. Lock row (`FOR UPDATE`)
-3. Apply change
-4. Insert ledger record
-5. Commit
+2. Lock row:
+
+   ```sql
+   SELECT ... FOR UPDATE
+   ```
+3. Validate balance
+4. Apply mutation
+5. Insert ledger entry
+6. Commit
 
 ---
 
-## Money Handling
+## INVARIANTS (MUST ALWAYS HOLD)
 
-* Use BCMath ONLY
-* All amounts stored as string DECIMAL
-* Never use float/double
+* `SUM(ledger) == wallet.balance`
+* No negative balances
+* No duplicate `(ref_type, ref_id)`
 
 ---
 
 # 🔐 SECURITY CONSTRAINTS
 
+## Secrets
+
+* NEVER hardcode
+* NEVER log
+* ALWAYS use env / secret manager
+
 ## Authentication
 
-* JWT must be:
+JWT must be:
 
-  * signed
-  * short-lived (<5 min)
-  * verified for issuer
+* signed
+* short-lived (<5 min)
+* issuer-validated
 
 ## Webhooks
 
-* MUST verify:
+MUST verify:
 
-  * HMAC signature
-  * timestamp window
-  * idempotency key
+* HMAC signature
+* timestamp window (±5 min)
+* nonce / idempotency key
 
-## Secrets
+---
 
-* NEVER in code
-* ONLY via env / secret manager
+# 🔴 RED TEAM ASSUMPTION
+
+Assume attacker will:
+
+* replay requests
+* race concurrent calls
+* forge callbacks
+* tamper payloads
+* escalate privileges
+
+### Therefore ALWAYS:
+
+* enforce idempotency
+* validate inputs strictly
+* log all financial actions
+* reject duplicates
 
 ---
 
 # 🧱 ENGINEERING DISCIPLINE
 
-## Code Requirements
+All code MUST be:
 
 * deterministic
 * idempotent
@@ -118,92 +140,113 @@ Every wallet operation MUST:
 
 ---
 
-# 🐳 DEVOPS DISCIPLINE
+# ⚙️ DEVOPS DISCIPLINE
 
-## Scripts
+## Bash Scripts (generator/phases)
 
-All bash scripts MUST:
+All scripts MUST:
 
 ```bash
 set -Eeuo pipefail
 IFS=$'\n\t'
 ```
 
-## Requirements
+### Requirements
 
-* idempotent execution
-* dependency checks
-* readiness checks
+* idempotent
+* resumable
+* dependency-aware
+* environment-validated
+
+### NEVER
+
+* assume services are ready
+* skip error handling
+* execute destructive ops blindly
 
 ---
 
-## Docker
+## Docker Rules
 
 * no hardcoded credentials
-* healthchecks required
-* services must start cleanly
+* no public DB exposure
+* required healthchecks
+* clean restart capability
 
 ---
 
-# 🧾 COMPLIANCE EXPECTATIONS
+# 🏦 COMPLIANCE EXPECTATIONS
 
 System MUST support:
 
 ## AML
 
 * transaction monitoring
-* suspicious activity detection
+* suspicious activity detection (STR)
 
 ## KYC
 
-* required before withdrawal
+* mandatory before withdrawals
 
 ## Audit
 
-* append-only logs
-* hash chain integrity
+* full traceability
+* tamper-evident logs
 
 ---
 
-# 🔴 RED TEAM AWARENESS
+# 🧾 AUDIT SYSTEM (MANDATORY)
 
-Copilot MUST assume attacker mindset:
+Every critical action logs:
 
-### Always check:
+* actor
+* action
+* entity
+* timestamp
+* hash chain (`prev_hash → hash`)
 
-* race conditions
-* replay attacks
-* signature bypass
-* privilege escalation
-* double-spend scenarios
+Logs must be:
+
+* append-only
+* verifiable
+* immutable
 
 ---
 
 # 🧪 STATIC ANALYSIS RULES
 
-## ESLint (TypeScript)
-
-Enforce:
+## TypeScript (ESLint)
 
 * no `any` in financial modules
-* required input validation
+* strict null checks
+* mandatory input validation
 * no direct DB access in API layer
 
-## PHPStan
+## PHP (PHPStan)
 
-Level: max
+* max level
+* forbid:
 
-Custom rules:
+  * float usage for money
+  * untyped DB operations
+  * SQL outside service layer
 
-* forbid float in wallet code
-* enforce transaction usage
-* forbid direct SQL outside services
+---
+
+# 🔍 CUSTOM LINT ENFORCEMENT
+
+Reject code if:
+
+* float used for money
+* no transaction wrapper
+* missing idempotency
+* missing audit logging
 
 ---
 
 # 🔐 PRE-COMMIT HOOK (MANDATORY)
 
-## File: `.git/hooks/pre-commit`
+File: `.git/hooks/pre-commit`
 
 ```bash
 #!/usr/bin/env bash
@@ -211,56 +254,68 @@ set -e
 
 echo "🔍 Running pre-commit security checks..."
 
-# 1. Secret scan
+# Secret scan
 if grep -r "PRIVATE_KEY\|SECRET\|API_KEY" .; then
   echo "❌ Secret detected"
   exit 1
 fi
 
-# 2. Float usage in wallet
+# Float usage in wallet
 if grep -r "float" backend/wallet; then
   echo "❌ Float usage in wallet"
   exit 1
 fi
 
-# 3. Ledger mutation check
+# Ledger mutation
 if grep -r "UPDATE wallet_ledger\|DELETE FROM wallet_ledger" .; then
   echo "❌ Ledger mutation detected"
   exit 1
 fi
 
-# 4. Run lint
+# Lint
 pnpm lint || exit 1
 
-# 5. PHP lint
+# PHP lint
 find backend -name "*.php" -exec php -l {} \; || exit 1
 
-echo "✅ Pre-commit checks passed"
+echo "✅ Pre-commit passed"
 ```
 
 ---
 
-# 🧾 AUTOMATED AUDIT VERIFIER
+# 🤖 CI GUARDRAIL BOT
 
-## Script: `scripts/audit_verify.php`
+CI MUST reject PRs if:
 
-Checks:
-
-* ledger hash chain integrity
-* balance consistency
-* duplicate transactions
+* unsafe wallet logic
+* missing idempotency
+* missing audit logging
+* secrets detected
 
 ---
 
-# 🔄 AUTOMATED RECONCILIATION CLI
+# 🔄 AUTOMATED RECONCILIATION
 
-## Script: `scripts/reconcile.php`
+Daily:
+
+```bash
+php scripts/reconcile.php
+```
+
+Must verify:
+
+* ledger == wallet balance
+* no inconsistencies
+
+---
+
+# 🔎 AUDIT VERIFIER
 
 Must:
 
-* compare ledger vs wallet
-* detect mismatches
-* output report
+* validate hash chain
+* detect tampering
+* fail on mismatch
 
 ---
 
@@ -268,7 +323,7 @@ Must:
 
 ## Kill Switch
 
-Env flag:
+Env:
 
 ```
 SYSTEM_MODE=read-only
@@ -279,15 +334,13 @@ Disables:
 * withdrawals
 * settlements
 
----
+## Auto-Block
 
-## Auto Block System
+Trigger:
 
-Trigger on:
-
-* abnormal transaction rate
+* abnormal velocity
 * balance anomalies
-* fraud score spike
+* fraud spikes
 
 Action:
 
@@ -296,308 +349,129 @@ Action:
 
 ---
 
-# 🔥 CHAOS TESTING
+# 🧪 CHAOS TESTING
 
-## Goal
+System MUST survive:
 
-Break system safely.
-
-## Examples
-
-* kill DB during transaction
 * duplicate callbacks
-* crash worker mid-processing
+* worker crashes
+* partial failures
 
-System MUST:
-
-* recover safely
-* not lose money
+Never lose or duplicate money.
 
 ---
 
 # 🤖 FRAUD DETECTION (ADVANCED)
 
-## Features
+Must include:
 
-* transaction velocity
-* bet size anomaly
-* session behavior
-
-## Model Types
-
-* rule-based (baseline)
+* velocity checks
 * anomaly detection (z-score)
-* future: ML classifier
+* behavioral patterns
+
+Future:
+
+* ML-based scoring
 
 ---
 
-# 📊 OBSERVABILITY
+# 📡 REAL-TIME RISK ENGINE
 
-Logs MUST include:
+* stream processing
+* per-transaction scoring
+* block high-risk actions
 
-* user_id
-* transaction_id
-* service
-* timestamp
+---
+
+# 🔄 SETTLEMENT SYSTEM (KAFKA-STYLE)
+
+Requirements:
+
+* exactly-once processing
+* idempotent consumers
+* replay-safe execution
+
+---
+
+# 🔐 HSM INTEGRATION
+
+* NO private keys in code
+* use signer abstraction
+
+Support:
+
+* AWS KMS
+* Fireblocks
+
+---
+
+# 🌍 MULTI-REGION CONSISTENCY
+
+* global transaction IDs
+* idempotent operations
+* conflict-safe writes
+
+---
+
+# 🏦 BANK RECONCILIATION
+
+* PSP vs internal ledger
+* mismatch detection
+* reporting
+
+---
+
+# 🔁 ATTACK REPLAY SYSTEM
+
+* record real traffic
+* replay safely
+* validate defenses
+
+---
+
+# 🧪 AUDIT SIMULATOR
+
+* simulate regulator inspection
+* export full transaction trace
+
+---
+
+# 🚫 NEVER ALLOW
+
+* bypassing wallet service
+* direct DB mutation
+* skipping validation
+* unsafe retries
+
+---
+
+# ✅ ALWAYS PREFER
+
+* append-only systems
+* idempotent APIs
+* explicit validation
+* deterministic execution
+
+---
+
+# 🎯 FINAL GOAL
+
+Every change must move the system toward:
+
+> **bank-grade, regulator-compliant, attack-resistant financial infrastructure**
 
 ---
 
 # 🧠 FINAL RULE
 
-Copilot must optimize for:
+If uncertain:
 
-> **safety > correctness > performance > convenience**
-
-If unsure:
-
-* block the operation
-* log it
-* require verification
+* choose safety
+* choose determinism
+* choose auditability
+* reject unsafe execution
 
 ---
-
-# 🎯 END GOAL
-
-All generated code must move system toward:
-
-> **bank-grade, audit-compliant, exploit-resistant financial platform**
-
----
-
-
-# 🧠 Copilot Instructions — zGaming Monorepo
-
-## 📌 Overview
-
-This repository implements a **real-money casino / fintech platform**.
-
-It includes:
-
-- Wallet + ledger system (financial core)
-- Settlement queue
-- AML / KYC logic
-- Audit logging (tamper-evident)
-- Docker-based infrastructure
-- Bash-based orchestration (meta-master + phases)
-
-⚠️ **This is a high-risk system**. Any incorrect code may result in:
-
-- financial loss
-- security breaches
-- regulatory violations
-
-## 🚨 NON-NEGOTIABLE RULES
-
-### 1. NEVER BREAK FINANCIAL CORRECTNESS
-
-- Wallet must be **ledger-first**
-- Ledger must be **append-only**
-- NEVER:
-  - update or delete ledger entries
-  - bypass idempotency checks
-  - use floating point for money
-
-✅ Always:
-
-- use BCMath (PHP) or string math
-- enforce idempotency keys
-- wrap financial operations in DB transactions
-
-### 2. NO DOUBLE-SPEND CONDITIONS
-
-All financial operations MUST:
-
-- be idempotent
-- use `SELECT ... FOR UPDATE`
-- check existing `ref_id` BEFORE applying changes
-
-### 3. NO HARD-CODED SECRETS
-
-NEVER generate code that:
-
-- embeds passwords
-- embeds API keys
-- prints secrets in logs
-
-ALWAYS use:
-
-- environment variables (`.env`)
-- secure loading in scripts
-
-### 4. BASH SCRIPTS MUST BE SAFE
-
-All scripts in `generator/phases`:
-
-- must be **idempotent**
-- must be safe to re-run
-- must fail fast (`set -Eeuo pipefail`)
-- must validate dependencies before execution
-
-NEVER:
-
-- assume services are running
-- skip error handling
-- run destructive commands without checks
-
-### 5. DOCKER / INFRA RULES
-
-- No hardcoded ports without justification
-- No hardcoded credentials
-- Must support clean restart
-
-Always:
-
-- use env variables
-- add healthchecks where possible
-
-### 6. API SECURITY
-
-All APIs must:
-
-- validate input strictly
-- authenticate requests (JWT or HMAC)
-- prevent replay attacks (nonce/timestamp)
-
-NEVER:
-
-- trust client input
-- expose internal errors
-
-### 7. WEBHOOK / CALLBACK SAFETY
-
-All callbacks must:
-
-- verify signature (HMAC)
-- validate timestamp (±5 minutes)
-- enforce idempotency
-
-### 8. AUDIT LOGGING IS MANDATORY
-
-Every critical action MUST log:
-
-- actor (user/admin/system)
-- action
-- entity affected
-- timestamp
-- hash linkage (`prev_hash → hash`)
-
-Audit logs must be:
-
-- append-only
-- tamper-evident
-
-### 9. QUEUE-BASED PROCESSING ONLY
-
-Do NOT introduce direct execution for:
-
-- settlements
-- payouts
-- withdrawals
-
-Use:
-
-- DB-backed queue (`SELECT ... FOR UPDATE SKIP LOCKED`)
-
-### 10. ZERO-TRUST SERVICE COMMUNICATION
-
-All internal services must:
-
-- authenticate using signed tokens
-- validate issuer + expiry
-
-NEVER:
-
-- trust internal network blindly
-
-## 🧩 ARCHITECTURE PRINCIPLES
-
-### Source of Truth
-
-- Ledger = source of truth
-- Balance = derived/cache
-
-### Idempotency
-
-- All external-facing operations must be replay-safe
-
-### Determinism
-
-- Scripts must produce same result every run
-
-### Isolation
-
-- Wallet signing must be abstracted (HSM-ready)
-
-## 🛠️ CODING GUIDELINES
-
-### PHP (Wallet / Backend)
-
-- Use strict types where possible
-- Use transactions for financial ops
-- Use BCMath for money
-
-### TypeScript (API)
-
-- Validate all inputs (zod or equivalent)
-- Never trust request body
-
-### Bash
-
-Always include:
-
-```bash
-set -Eeuo pipefail
-IFS=$'\n\t'
-```
-
-## 🔐 SECURITY CHECKLIST (MANDATORY)
-
-Before suggesting code, ensure:
-
-- [ ] No secrets exposed
-- [ ] No SQL injection risk
-- [ ] No race condition
-- [ ] No replay attack vector
-- [ ] Idempotency enforced
-- [ ] Logging does not leak sensitive data
-
-## 💣 HIGH-RISK AREAS (BE EXTRA CAREFUL)
-
-- `backend/wallet/*`
-- `modules/wallet/*`
-- `modules/game-engine/*`
-- `api/gateway/*`
-- `generator/phases/*`
-
-## 🚫 DO NOT SUGGEST
-
-- Floating point arithmetic for money
-- Direct DB mutations bypassing services
-- Disabling transactions
-- Skipping validation
-- “Quick fixes” that break invariants
-
-## ✅ PREFERRED PATTERNS
-
-- Append-only logs
-- Idempotent APIs
-- Explicit validation
-- Retry-safe operations
-- Hash-linked audit trails
-
-## 🎯 GOAL
-
-All generated code must move the system toward:
-
-> **secure, deterministic, audit-ready financial infrastructure**
-
-NOT:
-
-> “just working code”
-
-## 🧠 FINAL RULE
-
-If unsure:
-
-- choose safety over convenience
-- choose correctness over performance
+custom ESLint plugin (detect unsafe wallet code)
+PHPStan rules (block financial bugs)
+CI guard bot (auto PR rejection engine)

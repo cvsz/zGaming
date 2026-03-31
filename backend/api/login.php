@@ -88,7 +88,7 @@ try {
         json_response(422, ['error' => 'UNSUPPORTED_CHAIN']);
     }
 
-    $allowedRoles = ['player', 'admin', 'operator'];
+    $allowedRoles = ['player', 'admin', 'operator', 'auditor'];
     if (!in_array($role, $allowedRoles, true)) {
         json_response(422, ['error' => 'INVALID_ROLE']);
     }
@@ -147,6 +147,7 @@ try {
         'chain' => $chain,
         'chainId' => $chainId,
         'role' => $role,
+        'two_factor_enabled' => (($body['twoFactorEnabled'] ?? false) === true),
         'scope' => ['wallet:transfer', 'ledger:read'],
     ];
 

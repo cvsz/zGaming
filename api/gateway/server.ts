@@ -10,6 +10,8 @@ async function startServer(): Promise<void> {
   const jwtSecret = process.env.JWT_SECRET;
   const internalWebhookSecret = process.env.INTERNAL_WEBHOOK_SECRET;
   const adminProvisioningSecret = process.env.INTERNAL_ADMIN_TOKEN;
+  const jwtIssuer = process.env.JWT_ISSUER;
+  const jwtAudience = process.env.JWT_AUDIENCE;
   const seenWebhookEvents = new Map<string, number>();
 
   if (!jwtSecret || jwtSecret === "change-me") {
@@ -21,6 +23,12 @@ async function startServer(): Promise<void> {
   }
   if (!adminProvisioningSecret) {
     throw new Error("INTERNAL_ADMIN_TOKEN must be configured");
+  }
+  if (!jwtIssuer) {
+    throw new Error("JWT_ISSUER must be configured");
+  }
+  if (!jwtAudience) {
+    throw new Error("JWT_AUDIENCE must be configured");
   }
 
   await app.register(rateLimit, {
@@ -47,7 +55,13 @@ async function startServer(): Promise<void> {
     if (isPrivilegedRole && internalAuthHeader !== adminProvisioningSecret) {
       throw app.httpErrors.unauthorized("privileged role minting requires x-internal-auth");
     }
-    const token = await request.server.jwt.sign(payload, { expiresIn: "15m" });
+    const token = await request.server.jwt.sign(payload, {
+      expiresIn: "15m",
+      issuer: jwtIssuer,
+      audience: jwtAudience,
+      jti: randomUUID(),
+      sub: payload.userId,
+    });
 
     return {
       accessToken: token,
@@ -97,7 +111,10 @@ async function startServer(): Promise<void> {
     {
       preHandler: async (request: any, reply: any) => {
         try {
-          await request.jwtVerify();
+          await request.jwtVerify({
+            allowedIss: jwtIssuer,
+            allowedAud: jwtAudience,
+          });
         } catch {
           return reply.code(401).send({ error: "Unauthorized" });
         }

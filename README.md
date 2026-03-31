@@ -480,3 +480,22 @@ Added production-oriented modules for deterministic gaming and multi-chain walle
 Additional documentation:
 - `docs/compliance-checklist.md`
 - `docs/architecture-diagram.md`
+
+## 🧪 Deterministic Wallet + Factory Hardening (2026-03-31)
+
+- Wallet integration upgraded with strict chain validation and deterministic pre-submit simulation in `modules/wallet/*`.
+- Typed client bootstrap for Wagmi + Viem is available in `modules/wallet/wagmi-viem.ts`.
+- Autonomous Content Factory modules are isolated into `factory/scout`, `factory/render`, and `factory/publisher` with stateless orchestration primitives.
+- Publisher now supports resumable uploads via chunked coordinator (`factory/publisher/resumable-upload.ts`).
+- Render farm includes deterministic dispatch + HPA tuning contract (`factory/render/stateless-render-farm.ts`).
+
+### Codex Deployment Setup
+
+```bash
+pnpm run setup:codex
+```
+
+This command enforces:
+1. `pnpm install`
+2. `npx playwright install`
+3. Multi-chain isolation and anomaly guardrail checks (`scripts/verify-ops-guardrails.sh`)

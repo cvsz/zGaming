@@ -12,30 +12,46 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        # version omitted → automatically respects package.json "packageManager": "pnpm@10.8.1"
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Install deps
-        run: |
-          corepack enable
-          pnpm install --frozen-lockfile
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: TypeScript check
         run: pnpm tsc --noEmit
+
       - name: Lint
         run: pnpm lint
+
       - name: PHP lint
         run: find backend -name "*.php" -exec php -l {} \;
 
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
       - name: Secret scan
         run: |
           # High-signal scan for hardcoded secret values (avoids false positives on env var names).
@@ -46,14 +62,16 @@ jobs:
             --glob '!scripts/**' \
             --glob '!.github/workflows/ci-cd.yml' \
             "(-----BEGIN (RSA|EC|OPENSSH) PRIVATE KEY-----|(?:api|secret|private)_key\\s*[:=]\\s*['\\\"][A-Za-z0-9_./+=-]{16,}['\\\"])" .; then
-            echo "❌ Potential real secret leak detected"
+            echo "Potential real secret leak detected"
             exit 1
           fi
-          echo "✅ No real secrets found"
+          echo "No real secrets found"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Dependency audit
-        run: |
-          corepack enable
-          pnpm audit --prod || true
+        run: pnpm audit --prod || true
 
   test:
     runs-on: ubuntu-latest
@@ -71,17 +89,36 @@ jobs:
           --health-timeout=2s
           --health-retries=10
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install MySQL client (required for mysqladmin/mysql)
+        run: sudo apt-get update && sudo apt-get install -y default-mysql-client
+
       - name: Wait for MySQL
         run: |
           until mysqladmin ping -h 127.0.0.1 -uroot -proot --silent; do sleep 2; done
+
       - name: Run migrations
         run: |
           if [ -f backend/db/wallet.sql ]; then
             mysql -h 127.0.0.1 -uroot -proot test < backend/db/wallet.sql
           else
-            echo "⚠️ backend/db/wallet.sql not found - skipping migration"
+            echo "backend/db/wallet.sql not found - skipping migration"
           fi
+
       - name: Run tests
         run: pnpm test
 
@@ -100,6 +137,6 @@ jobs:
     steps:
       - name: Deploy (placeholder)
         run: |
-          echo "🚀 Deploy step"
+          echo "Deploy step"
           # Replace with:
           # ssh deploy@server "cd /app && git pull && docker compose up -d"

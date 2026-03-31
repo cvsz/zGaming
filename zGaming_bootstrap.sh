@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-IFS=$'\n\t'
+IFS=$'
+	'
 
 REPO_URL="https://github.com/CVSz/zGaming.git"
-WORKDIR="zGaming"
+WORKDIR="${WORKDIR:-zGaming}"
+BOOTSTRAP_VERSION="v8"
 
-echo "=== zGaming BOOTSTRAP v7 (DEPENDENCY-SAFE) ==="
+echo "=== zGaming BOOTSTRAP ${BOOTSTRAP_VERSION} (DEPENDENCY-SAFE) ==="
 
 # ------------------------------------------------------------
 # Prerequisites
@@ -21,7 +23,7 @@ done
 # Clean clone
 # ------------------------------------------------------------
 rm -rf "$WORKDIR"
-git clone "$REPO_URL"
+git clone --depth 1 "$REPO_URL" "$WORKDIR"
 cd "$WORKDIR"
 
 ENTRYPOINT="generator/meta-master.sh"
@@ -29,14 +31,26 @@ PHASE_DIR="generator/phases"
 LIB_DIR="generator/lib"
 ASSERT_LIB="$LIB_DIR/assert.sh"
 
+insert_after_shebang() {
+  local file="$1"
+  local block="$2"
+
+  grep -Fq "$block" "$file" && return 0
+
+  awk -v block="$block" 'NR==1{print; print block; next} {print}' "$file" > "$file.tmp"
+  mv "$file.tmp" "$file"
+}
+
 # ------------------------------------------------------------
 # 1. Enforce strict Bash
 # ------------------------------------------------------------
 echo "🔒 Enforcing strict Bash"
 
+strict_block=$'set -Eeuo pipefail\nIFS=$'"'"'\n\t'"'"''
+
 find generator -type f -name "*.sh" | while read -r f; do
   if ! grep -q "set -Eeuo pipefail" "$f"; then
-    sed -i '1s|^|#!/usr/bin/env bash\nset -Eeuo pipefail\nIFS=$'\''\n\t'\''\n\n|' "$f"
+    insert_after_shebang "$f" "$strict_block"
   fi
 done
 
@@ -62,11 +76,13 @@ chmod +x "$LIB_DIR/bash_guard.sh"
 # ------------------------------------------------------------
 echo "🧠 Injecting loaders"
 
-sed -i '2iZG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nsource "$ZG_ROOT/lib/bash_guard.sh"\n' \
-  "$ENTRYPOINT"
+entry_loader=$'ZG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nsource "$ZG_ROOT/lib/bash_guard.sh"'
+phase_loader=$'ZG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"\nsource "$ZG_ROOT/lib/bash_guard.sh"'
+
+insert_after_shebang "$ENTRYPOINT" "$entry_loader"
 
 for f in "$PHASE_DIR"/*.sh; do
-  sed -i '2iZG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"\nsource "$ZG_ROOT/lib/bash_guard.sh"\n' "$f"
+  insert_after_shebang "$f" "$phase_loader"
 done
 
 # ------------------------------------------------------------
@@ -74,8 +90,9 @@ done
 # ------------------------------------------------------------
 echo "🏷 Versioning"
 echo "1.0.0" > generator/VERSION
-sed -i '2iMM_VERSION="$(cat "$(dirname "$0")/VERSION")"\necho "Meta-Master version: $MM_VERSION"\nexport MM_VERSION\n' \
-  "$ENTRYPOINT"
+
+version_block=$'MM_VERSION="$(cat "$(dirname "$0")/VERSION")"\necho "Meta-Master version: $MM_VERSION"\nexport MM_VERSION'
+insert_after_shebang "$ENTRYPOINT" "$version_block"
 
 # ------------------------------------------------------------
 # 5. FIX ASSERTIONS (SPEC-CORRECT)
@@ -93,13 +110,12 @@ echo "🧩 Fixing phase 37 forward dependency"
 
 PHASE_37="$PHASE_DIR/37-currency-lock.sh"
 
-# Guard Pragmatic provider patching
-sed -i \
-'/backend\/api\/launch\/pragmatic.php/{
+if ! grep -q 'PRAGMATIC_LAUNCH="$ROOT/backend/api/launch/pragmatic.php"' "$PHASE_37"; then
+  sed -i '/backend\/api\/launch\/pragmatic.php/{
 s|^|PRAGMATIC_LAUNCH="$ROOT/backend/api/launch/pragmatic.php"\n\nif [[ -f "$PRAGMATIC_LAUNCH" ]]; then\n|;
 s|$|\nelse\n  echo "ℹ️ Pragmatic provider not present yet (patched after 40-providers.sh)"\nfi|;
-}' \
-"$PHASE_37"
+}' "$PHASE_37"
+fi
 
 # ------------------------------------------------------------
 # 7. Phase integrity
@@ -111,8 +127,8 @@ echo "🔐 Phase integrity"
   find . -type f -name "*.sh" -exec sha256sum {} \; > SHA256SUMS
 )
 
-sed -i '/run_phases/i( cd generator/phases && sha256sum -c SHA256SUMS ) || exit 1\n' \
-  "$ENTRYPOINT"
+integrity_block='( cd generator/phases && sha256sum -c SHA256SUMS ) || exit 1'
+insert_after_shebang "$ENTRYPOINT" "$integrity_block"
 
 # ------------------------------------------------------------
 # 8. Syntax verification
@@ -145,4 +161,4 @@ echo "🚀 Running required phases in safe order"
 echo "🏁 Running full pipeline"
 ./generator/meta-master.sh all
 
-echo "✅ zGaming BOOTSTRAP v7 COMPLETE"
+echo "✅ zGaming BOOTSTRAP ${BOOTSTRAP_VERSION} COMPLETE"

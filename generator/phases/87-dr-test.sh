@@ -6,6 +6,22 @@ echo "[PHASE 87] DISASTER RECOVERY TEST (FINAL)"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKUP_DIR="$ROOT/backups"
 COMPOSE="docker compose"
+CONTAINERS=(casino-db casino-backend casino-nginx)
+
+cleanup_named_containers() {
+  local existing=()
+  local name
+  for name in "${CONTAINERS[@]}"; do
+    if docker container inspect "$name" >/dev/null 2>&1; then
+      existing+=("$name")
+    fi
+  done
+
+  if [[ ${#existing[@]} -gt 0 ]]; then
+    echo "🧹 Removing pre-existing named containers: ${existing[*]}"
+    docker rm -f "${existing[@]}" >/dev/null
+  fi
+}
 
 # --------------------------------------------------
 # Resolve latest backup
@@ -20,6 +36,7 @@ echo "ℹ️ Using backup: $ARCHIVE"
 # --------------------------------------------------
 echo "🛑 Stopping all containers"
 $COMPOSE down
+cleanup_named_containers
 
 # --------------------------------------------------
 # Start DB SERVICE ONLY (service name!)
@@ -36,6 +53,7 @@ $COMPOSE up -d db
 # Start remaining services
 # --------------------------------------------------
 echo "▶️ Starting all services"
+cleanup_named_containers
 $COMPOSE up -d
 
 # --------------------------------------------------

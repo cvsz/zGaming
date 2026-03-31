@@ -45,9 +45,9 @@ Meta-Master คือ **Platform Generator**
 Infra:
 
 * Docker / Docker Compose
-* NGINX reverse proxy
+* Reverse proxy and ingress (generated in infra phase)
 * Cloudflare (HTTPS / WAF)
-* Kubernetes (Helm / multi-env)
+* Kubernetes (`infra/kubernetes/`, Helm / multi-env)
 
 ---
 
@@ -58,8 +58,8 @@ zGaming/
 ├── backend/              # PHP backend (wallet, auth, callbacks)
 ├── frontend-player/      # React player UI
 ├── frontend-admin/       # React admin UI
-├── nginx/                # NGINX reverse proxy
-├── k8s/                  # Kubernetes manifests (Helm / Kustomize)
+├── apps/frontend-wallet/ # Wallet frontend workspace app
+├── infra/kubernetes/     # Kubernetes manifests (Helm / Kustomize)
 ├── generator/
 │   ├── meta-master.sh    # Master controller
 │   ├── phases/           # Phase-by-phase generators

@@ -1,8 +1,8 @@
 {
   "summary": {
     "repository": "/workspace/zGaming",
-    "generated_at_utc": "2026-03-31T01:19:38.918811+00:00",
-    "phase_count": 37,
+    "generated_at_utc": "2026-03-31T14:19:27.913068+00:00",
+    "phase_count": 38,
     "check_count": 5,
     "pass_count": 4,
     "warn_count": 1,
@@ -27,7 +27,7 @@
     {
       "name": "todo_fixme_debt",
       "status": "warn",
-      "details": "Found 7 TODO/FIXME markers in scanned files."
+      "details": "Found 9 TODO/FIXME markers in scanned files."
     },
     {
       "name": "cicd_presence",
@@ -36,7 +36,7 @@
     }
   ],
   "upgrade_actions": [
-    "[P1] Improve todo_fixme_debt: Found 7 TODO/FIXME markers in scanned files.",
+    "[P1] Improve todo_fixme_debt: Found 9 TODO/FIXME markers in scanned files.",
     "[P1] Generate SBOM artifact in CI (SPDX/CycloneDX) and store alongside releases.",
     "[P1] Add automated vulnerability scan stage (e.g., Trivy/grype) before release packaging.",
     "[P2] Include reproducibility check by hashing generated artifacts across two clean runs."

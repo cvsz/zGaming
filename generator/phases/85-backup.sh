@@ -8,6 +8,7 @@ BACKUP_DIR="$ROOT/backups"
 TS="$(date +%Y%m%d-%H%M%S)"
 OUT="$BACKUP_DIR/backup-$TS"
 DB_CONTAINER="casino-db"
+DB_SERVICE="db"
 
 mkdir -p "$BACKUP_DIR"
 
@@ -37,15 +38,49 @@ fi
 export BACKUP_KEY DB_PASS
 
 # --------------------------------------------------
-# Wait for MySQL
+# Ensure DB container exists/runs
+# --------------------------------------------------
+ensure_db_container() {
+  if docker ps --format '{{.Names}}' | grep -Fxq "$DB_CONTAINER"; then
+    echo "✅ MySQL container already running: $DB_CONTAINER"
+    return 0
+  fi
+
+  if docker ps -a --format '{{.Names}}' | grep -Fxq "$DB_CONTAINER"; then
+    echo "ℹ️ Starting existing MySQL container: $DB_CONTAINER"
+    docker start "$DB_CONTAINER" >/dev/null
+    return 0
+  fi
+
+  if [[ -f "$ROOT/docker-compose.yml" ]]; then
+    echo "ℹ️ $DB_CONTAINER missing; attempting docker compose up -d $DB_SERVICE"
+    (cd "$ROOT" && docker compose up -d "$DB_SERVICE")
+    return 0
+  fi
+
+  echo "❌ MySQL container $DB_CONTAINER is missing and docker-compose.yml was not found"
+  exit 1
+}
+
+ensure_db_container
+
+# --------------------------------------------------
+# Wait for MySQL readiness
 # --------------------------------------------------
 echo "⏳ Waiting for MySQL in container $DB_CONTAINER"
+MYSQL_READY=0
 for i in {1..30}; do
   if docker exec "$DB_CONTAINER" mysqladmin ping -u"$DB_USER" -p"$DB_PASS" --silent; then
+    MYSQL_READY=1
     break
   fi
   sleep 2
 done
+
+if [[ "$MYSQL_READY" -ne 1 ]]; then
+  echo "❌ MySQL did not become ready in container $DB_CONTAINER"
+  exit 1
+fi
 
 # --------------------------------------------------
 # Dump DB (container-safe)

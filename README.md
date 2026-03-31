@@ -435,17 +435,17 @@ Meta-Master ถูกออกแบบมาเพื่อ:
 
 ---
 
-## 📬 Next Extensions
+## 📬 Upgrade Extensions (Implemented)
 
-ถ้าต้องการ:
+หัวข้อที่เคยอยู่ในแผนต่อขยาย ได้ถูกยกระดับเข้าเป็น phase มาตรฐานแล้ว:
 
-* Multi-currency / FX
-* Live reconciliation
-* DR / backup / restore
-* ISO27001 / PCI mapping
-* Chaos testing phase
+* ✅ Multi-currency / FX (`35-fx.sh`, `36-fx-live.sh`, `37-currency-lock.sh`, `38-multi-wallet.sh`)
+* ✅ Live reconciliation (`100-bank-reconciliation.sh`, `93-settlement-engine.sh`)
+* ✅ DR / backup / restore (`85-backup.sh`, `86-restore.sh`, `87-dr-test.sh`, `88-offsite.sh`, `91-hot-standby.sh`)
+* ✅ ISO27001 / PCI mapping (`80-security.sh`, `105-compliance-dashboard.sh`, `106-auditor-handover.sh`)
+* ✅ Chaos testing phase (`30-wallet.sh`, `110-runtest-report.sh`, `scripts/chaos-callback-storm.sh`)
 
-สามารถต่อ phase เพิ่มได้ทันที
+สามารถ run ผ่าน `./generator/meta-master.sh upgrade` หรือ run แบบ phase-by-phase ได้ทันที
 
 ---
 

@@ -22,9 +22,19 @@ fi
 
 # shellcheck disable=SC1090
 source "$ENV_FILE"
-export BACKUP_KEY DB_PASS
 
-[[ -n "${BACKUP_KEY:-}" ]] || { echo "❌ BACKUP_KEY missing"; exit 1; }
+for required_var in DB_USER DB_PASS DB_NAME; do
+  [[ -n "${!required_var:-}" ]] || { echo "❌ $required_var missing in backend/.env"; exit 1; }
+done
+
+if [[ -z "${BACKUP_KEY:-}" ]]; then
+  echo "⚠️ BACKUP_KEY missing in backend/.env; generating one"
+  BACKUP_KEY="$(openssl rand -hex 32)"
+  printf '\nBACKUP_KEY=%s\n' "$BACKUP_KEY" >> "$ENV_FILE"
+  echo "✅ BACKUP_KEY generated and appended to backend/.env"
+fi
+
+export BACKUP_KEY DB_PASS
 
 # --------------------------------------------------
 # Wait for MySQL

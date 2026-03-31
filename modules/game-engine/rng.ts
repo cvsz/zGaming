@@ -12,6 +12,9 @@ export class DeterministicRng {
     private readonly clientSeed: string,
     startingNonce: number,
   ) {
+    if (!Number.isInteger(startingNonce) || startingNonce < 0) {
+      throw new Error(`Invalid starting nonce: ${startingNonce}`);
+    }
     this.nonce = startingNonce;
   }
 

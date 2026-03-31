@@ -25,9 +25,13 @@ CREATE TABLE IF NOT EXISTS provider_callbacks (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   provider VARCHAR(32) NOT NULL,
   external_txn VARCHAR(128) NOT NULL,
+  callback_nonce VARCHAR(128) NOT NULL,
+  callback_ts BIGINT NOT NULL,
+  payload_hash CHAR(64) NOT NULL,
   processed TINYINT(1) DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uniq_provider_txn (provider, external_txn)
+  UNIQUE KEY uniq_provider_txn (provider, external_txn),
+  UNIQUE KEY uniq_provider_nonce (provider, callback_nonce)
 );
 SQL
 
@@ -38,20 +42,36 @@ SQL
 cat > "$BACKEND/core/ProviderSignature.php" <<'PHP'
 <?php
 final class ProviderSignature {
+  private const MAX_SKEW_MS = 300000;
 
-  public static function verifyPragmatic(array $data, string $secret): bool {
+  public static function verifyPragmatic(array $data, string $secret, string $rawBody): bool {
     $sign = $data['signature'] ?? '';
+    $timestamp = isset($data['ts']) ? (int)$data['ts'] : 0;
+    if (!self::validateTimestamp($timestamp)) {
+      return false;
+    }
     unset($data['signature']);
     ksort($data);
     $base = http_build_query($data);
-    $calc = hash_hmac('sha256', $base, $secret);
+    $calc = hash_hmac('sha256', $base . '.' . $rawBody, $secret);
     return hash_equals($calc, $sign);
   }
 
-  public static function verifyPG(array $data, string $secret): bool {
-    $raw = json_encode($data, JSON_UNESCAPED_SLASHES);
-    $calc = hash_hmac('sha256', $raw, $secret);
+  public static function verifyPG(array $data, string $secret, string $rawBody): bool {
+    $timestamp = isset($data['ts']) ? (int)$data['ts'] : 0;
+    if (!self::validateTimestamp($timestamp)) {
+      return false;
+    }
+    $calc = hash_hmac('sha256', $rawBody . '.' . $timestamp, $secret);
     return hash_equals($calc, $data['sign'] ?? '');
+  }
+
+  private static function validateTimestamp(int $timestampMs): bool {
+    if ($timestampMs <= 0) {
+      return false;
+    }
+    $nowMs = (int)floor(microtime(true) * 1000);
+    return abs($nowMs - $timestampMs) <= self::MAX_SKEW_MS;
   }
 }
 PHP
@@ -68,7 +88,10 @@ final class WalletAtomic {
     int $userId,
     float $amount,
     string $provider,
-    string $externalTxn
+    string $externalTxn,
+    string $nonce,
+    int $callbackTs,
+    string $payloadHash
   ): float {
     $db = Database::conn();
     $db->beginTransaction();
@@ -76,9 +99,9 @@ final class WalletAtomic {
     try {
       $stmt = $db->prepare(
         "INSERT INTO provider_callbacks (provider, external_txn, processed)
-         VALUES (?,?,0)"
+         VALUES (?,?,?,?,?,0)"
       );
-      $stmt->execute([$provider, $externalTxn]);
+      $stmt->execute([$provider, $externalTxn, $nonce, $callbackTs, $payloadHash]);
 
       $db->prepare(
         "UPDATE wallets SET balance = balance + ? WHERE user_id=?"
@@ -115,9 +138,10 @@ require_once __DIR__ . '/../../core/ProviderSignature.php';
 require_once __DIR__ . '/../../core/WalletAtomic.php';
 
 $data = $_POST;
+$rawBody = file_get_contents('php://input') ?: '';
 $secret = getenv('PRAGMATIC_SECRET');
 
-if (!ProviderSignature::verifyPragmatic($data, $secret)) {
+if (!ProviderSignature::verifyPragmatic($data, $secret, $rawBody)) {
   http_response_code(403);
   echo json_encode(['error'=>'bad_signature']);
   exit;
@@ -126,9 +150,17 @@ if (!ProviderSignature::verifyPragmatic($data, $secret)) {
 $userId = (int)$data['user_id'];
 $amount = (float)$data['amount'];
 $txn    = $data['transaction_id'];
+$nonce  = (string)($data['nonce'] ?? '');
+$ts     = (int)($data['ts'] ?? 0);
+$payloadHash = hash('sha256', $rawBody);
+if ($nonce === '' || $ts <= 0) {
+  http_response_code(400);
+  echo json_encode(['error'=>'missing_nonce_or_ts']);
+  exit;
+}
 
 try {
-  $bal = WalletAtomic::apply($userId, $amount, 'pragmatic', $txn);
+  $bal = WalletAtomic::apply($userId, $amount, 'pragmatic', $txn, $nonce, $ts, $payloadHash);
   echo json_encode(['status'=>'ok','balance'=>$bal]);
 } catch (Throwable $e) {
   if (str_contains($e->getMessage(),'uniq_provider_txn')) {
@@ -150,10 +182,11 @@ require_once __DIR__ . '/../../core/Bootstrap.php';
 require_once __DIR__ . '/../../core/ProviderSignature.php';
 require_once __DIR__ . '/../../core/WalletAtomic.php';
 
-$raw = json_decode(file_get_contents('php://input'), true);
+$rawBody = file_get_contents('php://input') ?: '';
+$raw = json_decode($rawBody, true);
 $secret = getenv('PGSOFT_SECRET');
 
-if (!ProviderSignature::verifyPG($raw, $secret)) {
+if (!ProviderSignature::verifyPG($raw, $secret, $rawBody)) {
   http_response_code(403);
   echo json_encode(['error'=>'bad_signature']);
   exit;
@@ -162,9 +195,17 @@ if (!ProviderSignature::verifyPG($raw, $secret)) {
 $userId = (int)$raw['playerId'];
 $amount = (float)$raw['winAmount'];
 $txn    = $raw['roundId'];
+$nonce  = (string)($raw['nonce'] ?? '');
+$ts     = (int)($raw['ts'] ?? 0);
+$payloadHash = hash('sha256', $rawBody);
+if ($nonce === '' || $ts <= 0) {
+  http_response_code(400);
+  echo json_encode(['error'=>'missing_nonce_or_ts']);
+  exit;
+}
 
 try {
-  $bal = WalletAtomic::apply($userId, $amount, 'pgsoft', $txn);
+  $bal = WalletAtomic::apply($userId, $amount, 'pgsoft', $txn, $nonce, $ts, $payloadHash);
   echo json_encode(['code'=>0,'balance'=>$bal]);
 } catch (Throwable $e) {
   if (str_contains($e->getMessage(),'uniq_provider_txn')) {

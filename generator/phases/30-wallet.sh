@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS wallets (
 CREATE TABLE IF NOT EXISTS wallet_ledger (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT NOT NULL,
+  sequence_id BIGINT NOT NULL,
   direction ENUM('debit','credit') NOT NULL,
   amount DECIMAL(18,6) NOT NULL,
   ref_type VARCHAR(32) NOT NULL,
@@ -39,8 +40,25 @@ CREATE TABLE IF NOT EXISTS wallet_ledger (
   hash CHAR(64) NOT NULL,
   balance_after DECIMAL(18,6),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_user_sequence (user_id, sequence_id),
   UNIQUE KEY uniq_ref (user_id, ref_type, ref_id),
   KEY idx_user_created (user_id, created_at)
+);
+
+CREATE TABLE IF NOT EXISTS wallet_idempotency_keys (
+  idempotency_key VARCHAR(128) PRIMARY KEY,
+  status ENUM('pending','complete') NOT NULL,
+  response_hash CHAR(64),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  actor VARCHAR(64) NOT NULL,
+  action VARCHAR(64) NOT NULL,
+  payload_hash CHAR(64) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 SET @has_legacy_ref_index := (
@@ -109,6 +127,8 @@ use PDOException;
 final class WalletService {
   private const SCALE = 6;
   private const MAX_RETRIES = 3;
+  private const MAX_TX_AMOUNT = '1000000.000000';
+  private const DAILY_WITHDRAWAL_LIMIT = '50000.000000';
 
   public static function ensureUser(int $userId): void {
     $db = Database::conn();
@@ -133,6 +153,31 @@ final class WalletService {
     }
 
     return $amount . '.' . str_repeat('0', self::SCALE);
+  }
+
+  private static function guardFinancialLimits(int $userId, string $direction, string $amount): void {
+    if (self::decimalCmp($amount, self::MAX_TX_AMOUNT) > 0) {
+      throw new RuntimeException('max_transaction_amount_exceeded');
+    }
+
+    if ($direction !== 'debit') {
+      return;
+    }
+
+    $db = Database::conn();
+    $stmt = $db->prepare(
+      "SELECT COALESCE(SUM(amount),0)
+         FROM wallet_ledger
+        WHERE user_id=?
+          AND direction='debit'
+          AND created_at >= (UTC_TIMESTAMP() - INTERVAL 1 DAY)"
+    );
+    $stmt->execute([$userId]);
+    $dailyDebits = (string)$stmt->fetchColumn();
+    $nextDailyDebits = self::decimalAdd($dailyDebits, $amount);
+    if (self::decimalCmp($nextDailyDebits, self::DAILY_WITHDRAWAL_LIMIT) > 0) {
+      throw new RuntimeException('daily_withdrawal_limit_exceeded');
+    }
   }
 
   private static function decimalCmp(string $left, string $right): int {
@@ -181,6 +226,28 @@ final class WalletService {
 
       try {
         self::ensureUser($userId);
+        self::guardFinancialLimits($userId, $direction, $normalizedAmount);
+
+        $idemLock = $db->prepare(
+          "SELECT status, response_hash
+             FROM wallet_idempotency_keys
+            WHERE idempotency_key=?
+            LIMIT 1
+            FOR UPDATE"
+        );
+        $idemKey = hash('sha256', implode('|', [$userId, $refType, $refId]));
+        $idemLock->execute([$idemKey]);
+        $idemRow = $idemLock->fetch(PDO::FETCH_ASSOC);
+        if ($idemRow && ($idemRow['status'] ?? '') === 'complete') {
+          $db->commit();
+          return;
+        }
+        if (!$idemRow) {
+          $db->prepare(
+            "INSERT INTO wallet_idempotency_keys (idempotency_key, status)
+             VALUES (?, 'pending')"
+          )->execute([$idemKey]);
+        }
 
         $ledgerLock = $db->prepare(
           "SELECT id
@@ -209,7 +276,7 @@ final class WalletService {
           : self::decimalSub($balance, $normalizedAmount);
 
         $stmt = $db->prepare(
-          "SELECT hash
+          "SELECT sequence_id, hash
              FROM wallet_ledger
             WHERE user_id=?
             ORDER BY id DESC
@@ -217,7 +284,9 @@ final class WalletService {
             FOR UPDATE"
         );
         $stmt->execute([$userId]);
-        $prevHash = (string)($stmt->fetchColumn() ?: str_repeat('0', 64));
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $prevHash = (string)($row['hash'] ?? str_repeat('0', 64));
+        $sequenceId = (int)($row['sequence_id'] ?? 0) + 1;
 
         $entryPayload = implode('|', [
           $userId,
@@ -237,10 +306,11 @@ final class WalletService {
 
         $db->prepare(
           "INSERT INTO wallet_ledger
-            (user_id, direction, amount, ref_type, ref_id, provider, prev_hash, hash, balance_after)
-           VALUES (?,?,?,?,?,?,?,?,?)"
+            (user_id, sequence_id, direction, amount, ref_type, ref_id, provider, prev_hash, hash, balance_after)
+           VALUES (?,?,?,?,?,?,?,?,?,?)"
         )->execute([
           $userId,
+          $sequenceId,
           $direction,
           $normalizedAmount,
           $refType,
@@ -250,6 +320,26 @@ final class WalletService {
           $hash,
           $newBalance
         ]);
+
+        $db->prepare(
+          "UPDATE wallet_idempotency_keys
+              SET status='complete', response_hash=?
+            WHERE idempotency_key=?"
+        )->execute([$hash, $idemKey]);
+
+        $payloadHash = hash('sha256', json_encode([
+          'user_id' => $userId,
+          'sequence_id' => $sequenceId,
+          'direction' => $direction,
+          'amount' => $normalizedAmount,
+          'ref_type' => $refType,
+          'ref_id' => $refId,
+          'provider' => $provider
+        ], JSON_UNESCAPED_SLASHES));
+        $db->prepare(
+          "INSERT INTO audit_log (actor, action, payload_hash)
+           VALUES (?,?,?)"
+        )->execute([(string)$userId, 'wallet_ledger_append', $payloadHash]);
 
         $db->commit();
         return;

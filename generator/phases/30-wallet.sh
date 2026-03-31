@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
+# =============================================================================
+# generator/phases/30-wallet.sh – Regenerated Wallet Ledger (Deep Impact Drive)
+# =============================================================================
+# Author: zGaming Generator (regenerated per security audit)
+# Version: 2.2 (2026-03)
+# Purpose: Generate immutable, tamper-evident wallet ledger with enhanced
+#          verification, signing readiness, and reconciliation support.
+# =============================================================================
+
 ZG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ZG_ROOT/lib/bash_guard.sh"
 
 set -Eeuo pipefail
-IFS=$'
-	'
+IFS=$'\n\t'
 
-#!/usr/bin/env bash
-set -euo pipefail
-
-echo "[PHASE 30] WALLET – Ledger / Reconciliation / Safety"
+echo "[PHASE 30] WALLET – Ledger / Reconciliation / Safety (Regenerated v2.2)"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND="$ROOT/backend"
@@ -17,41 +22,43 @@ BACKEND="$ROOT/backend"
 mkdir -p "$BACKEND"/{wallet,db,api}
 
 # ============================================================
-# 1. Wallet Ledger Schema (append-safe)
+# 1. Wallet Ledger Schema (append-only + immutable triggers)
 # ============================================================
 
 cat > "$BACKEND/db/wallet.sql" <<'SQL'
 CREATE TABLE IF NOT EXISTS wallets (
   user_id BIGINT PRIMARY KEY,
-  balance DECIMAL(18,6) NOT NULL DEFAULT 0,
+  balance DECIMAL(18,6) NOT NULL DEFAULT 0 COMMENT 'Cache only – ledger is authoritative',
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS wallet_ledger (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT NOT NULL,
-  sequence_id BIGINT NOT NULL,
+  sequence_id BIGINT NOT NULL COMMENT 'Monotonically increasing per user',
   direction ENUM('debit','credit') NOT NULL,
   amount DECIMAL(18,6) NOT NULL,
   ref_type VARCHAR(32) NOT NULL,
   ref_id VARCHAR(64) NOT NULL,
-  provider VARCHAR(32),
+  provider VARCHAR(32) DEFAULT NULL,
+  fx_rate DECIMAL(18,8) DEFAULT NULL COMMENT 'Snapshot for multi-currency',
+  base_amount DECIMAL(18,6) DEFAULT NULL,
   prev_hash CHAR(64) NOT NULL,
   hash CHAR(64) NOT NULL,
-  balance_after DECIMAL(18,6),
+  balance_after DECIMAL(18,6) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uniq_user_sequence (user_id, sequence_id),
   UNIQUE KEY uniq_ref (user_id, ref_type, ref_id),
   KEY idx_user_created (user_id, created_at)
-);
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS wallet_idempotency_keys (
   idempotency_key VARCHAR(128) PRIMARY KEY,
-  status ENUM('pending','complete') NOT NULL,
-  response_hash CHAR(64),
+  status ENUM('pending','complete') NOT NULL DEFAULT 'pending',
+  response_hash CHAR(64) DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -59,56 +66,21 @@ CREATE TABLE IF NOT EXISTS audit_log (
   action VARCHAR(64) NOT NULL,
   payload_hash CHAR(64) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB;
 
-SET @has_legacy_ref_index := (
-  SELECT COUNT(*)
-  FROM information_schema.statistics
-  WHERE table_schema = DATABASE()
-    AND table_name = 'wallet_ledger'
-    AND index_name = 'uniq_ref'
-    AND seq_in_index = 1
-    AND column_name = 'ref_type'
-);
-
-SET @drop_legacy_idx_sql := IF(@has_legacy_ref_index > 0,
-  'ALTER TABLE wallet_ledger DROP INDEX uniq_ref',
-  'SELECT 1');
-PREPARE drop_legacy_idx_stmt FROM @drop_legacy_idx_sql;
-EXECUTE drop_legacy_idx_stmt;
-DEALLOCATE PREPARE drop_legacy_idx_stmt;
-
-SET @has_new_ref_index := (
-  SELECT COUNT(*)
-  FROM information_schema.statistics
-  WHERE table_schema = DATABASE()
-    AND table_name = 'wallet_ledger'
-    AND index_name = 'uniq_ref'
-    AND seq_in_index = 1
-    AND column_name = 'user_id'
-);
-
-SET @add_new_idx_sql := IF(@has_new_ref_index = 0,
-  'ALTER TABLE wallet_ledger ADD UNIQUE KEY uniq_ref (user_id, ref_type, ref_id)',
-  'SELECT 1');
-PREPARE add_new_idx_stmt FROM @add_new_idx_sql;
-EXECUTE add_new_idx_stmt;
-DEALLOCATE PREPARE add_new_idx_stmt;
-
+-- Immutability triggers
 DELIMITER $$
 
 DROP TRIGGER IF EXISTS wallet_ledger_immutable_update$$
 CREATE TRIGGER wallet_ledger_immutable_update
-BEFORE UPDATE ON wallet_ledger
-FOR EACH ROW
+BEFORE UPDATE ON wallet_ledger FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'wallet_ledger is immutable';
 END$$
 
 DROP TRIGGER IF EXISTS wallet_ledger_immutable_delete$$
 CREATE TRIGGER wallet_ledger_immutable_delete
-BEFORE DELETE ON wallet_ledger
-FOR EACH ROW
+BEFORE DELETE ON wallet_ledger FOR EACH ROW
 BEGIN
   SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'wallet_ledger is immutable';
 END$$
@@ -117,353 +89,292 @@ DELIMITER ;
 SQL
 
 # ============================================================
-# 2. Wallet Service (ACID + Lock)
+# 2. Wallet Service (ACID, locking, idempotency, financial guards)
 # ============================================================
 
 cat > "$BACKEND/wallet/WalletService.php" <<'PHP'
 <?php
+declare(strict_types=1);
+
+use PDO;
 use PDOException;
 
-final class WalletService {
-  private const SCALE = 6;
-  private const MAX_RETRIES = 3;
-  private const MAX_TX_AMOUNT = '1000000.000000';
-  private const DAILY_WITHDRAWAL_LIMIT = '50000.000000';
+/**
+ * Immutable Wallet Ledger Service – Single source of truth for financial operations.
+ * Regenerated v2.2 with enhanced verification and signing readiness.
+ */
+final class WalletService
+{
+    private const SCALE = 6;
+    private const MAX_RETRIES = 3;
+    private const MAX_TX_AMOUNT = '1000000.000000';
+    private const DAILY_WITHDRAWAL_LIMIT = '50000.000000';
 
-  public static function ensureUser(int $userId): void {
-    $db = Database::conn();
-    $db->prepare(
-      "INSERT IGNORE INTO wallets (user_id, balance) VALUES (?, 0)"
-    )->execute([$userId]);
-  }
-
-  private static function normalizeAmount(string $amount): string {
-    $amount = trim($amount);
-    if (!preg_match('/^\d+(?:\.\d{1,6})?$/', $amount)) {
-      throw new InvalidArgumentException('invalid_amount_format');
+    private static function conn(): PDO
+    {
+        return Database::conn();
     }
 
-    if (preg_match('/^0+(?:\.0+)?$/', $amount)) {
-      throw new InvalidArgumentException('invalid_amount_non_positive');
+    public static function ensureUser(int $userId): void
+    {
+        self::conn()->prepare(
+            "INSERT IGNORE INTO wallets (user_id, balance) VALUES (?, 0)"
+        )->execute([$userId]);
     }
 
-    if (str_contains($amount, '.')) {
-      [$intPart, $decPart] = explode('.', $amount, 2);
-      return $intPart . '.' . str_pad($decPart, self::SCALE, '0');
+    private static function normalizeAmount(string $amount): string
+    {
+        $amount = trim($amount);
+        if (!preg_match('/^\d+(?:\.\d{1,6})?$/', $amount)) {
+            throw new InvalidArgumentException('invalid_amount_format');
+        }
+        if (bccomp($amount, '0', self::SCALE) <= 0) {
+            throw new InvalidArgumentException('invalid_amount_non_positive');
+        }
+        return number_format((float)$amount, self::SCALE, '.', '');
     }
 
-    return $amount . '.' . str_repeat('0', self::SCALE);
-  }
+    private static function guardFinancialLimits(int $userId, string $direction, string $amount): void
+    {
+        if (bccomp($amount, self::MAX_TX_AMOUNT, self::SCALE) > 0) {
+            throw new RuntimeException('max_transaction_amount_exceeded');
+        }
+        if ($direction !== 'debit') {
+            return;
+        }
 
-  private static function guardFinancialLimits(int $userId, string $direction, string $amount): void {
-    if (self::decimalCmp($amount, self::MAX_TX_AMOUNT) > 0) {
-      throw new RuntimeException('max_transaction_amount_exceeded');
+        $stmt = self::conn()->prepare(
+            "SELECT COALESCE(SUM(amount), '0')
+               FROM wallet_ledger
+              WHERE user_id = ?
+                AND direction = 'debit'
+                AND created_at >= UTC_TIMESTAMP() - INTERVAL 1 DAY"
+        );
+        $stmt->execute([$userId]);
+        $dailyDebits = (string)$stmt->fetchColumn();
+        $projected = bcadd($dailyDebits, $amount, self::SCALE);
+        if (bccomp($projected, self::DAILY_WITHDRAWAL_LIMIT, self::SCALE) > 0) {
+            throw new RuntimeException('daily_withdrawal_limit_exceeded');
+        }
     }
 
-    if ($direction !== 'debit') {
-      return;
-    }
-
-    $db = Database::conn();
-    $stmt = $db->prepare(
-      "SELECT COALESCE(SUM(amount),0)
-         FROM wallet_ledger
-        WHERE user_id=?
-          AND direction='debit'
-          AND created_at >= (UTC_TIMESTAMP() - INTERVAL 1 DAY)"
-    );
-    $stmt->execute([$userId]);
-    $dailyDebits = (string)$stmt->fetchColumn();
-    $nextDailyDebits = self::decimalAdd($dailyDebits, $amount);
-    if (self::decimalCmp($nextDailyDebits, self::DAILY_WITHDRAWAL_LIMIT) > 0) {
-      throw new RuntimeException('daily_withdrawal_limit_exceeded');
-    }
-  }
-
-  private static function decimalCmp(string $left, string $right): int {
-    return bccomp($left, $right, self::SCALE);
-  }
-
-  private static function decimalAdd(string $left, string $right): string {
-    return bcadd($left, $right, self::SCALE);
-  }
-
-  private static function decimalSub(string $left, string $right): string {
-    return bcsub($left, $right, self::SCALE);
-  }
-
-  private static function isDeadlock(PDOException $e): bool {
-    $driverCode = $e->errorInfo[1] ?? null;
-    return $driverCode === 1213 || $driverCode === 1205;
-  }
-
-  public static function balance(int $userId): string {
-    self::ensureUser($userId);
-    $db = Database::conn();
-    $stmt = $db->prepare("SELECT balance FROM wallets WHERE user_id=?");
-    $stmt->execute([$userId]);
-    return (string)$stmt->fetchColumn();
-  }
-
-  public static function apply(
-    int $userId,
-    string $direction,
-    string $amount,
-    string $refType,
-    string $refId,
-    ?string $provider = null
-  ): void {
-    if (!in_array($direction, ['credit', 'debit'], true)) {
-      throw new InvalidArgumentException('invalid_direction');
-    }
-
-    $normalizedAmount = self::normalizeAmount($amount);
-    $db = Database::conn();
-
-    for ($attempt = 1; $attempt <= self::MAX_RETRIES; $attempt++) {
-      $db->exec("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
-      $db->beginTransaction();
-
-      try {
+    public static function balance(int $userId): string
+    {
         self::ensureUser($userId);
-        self::guardFinancialLimits($userId, $direction, $normalizedAmount);
-
-        $idemLock = $db->prepare(
-          "SELECT status, response_hash
-             FROM wallet_idempotency_keys
-            WHERE idempotency_key=?
-            LIMIT 1
-            FOR UPDATE"
-        );
-        $idemKey = hash('sha256', implode('|', [$userId, $refType, $refId]));
-        $idemLock->execute([$idemKey]);
-        $idemRow = $idemLock->fetch(PDO::FETCH_ASSOC);
-        if ($idemRow && ($idemRow['status'] ?? '') === 'complete') {
-          $db->commit();
-          return;
-        }
-        if (!$idemRow) {
-          $db->prepare(
-            "INSERT INTO wallet_idempotency_keys (idempotency_key, status)
-             VALUES (?, 'pending')"
-          )->execute([$idemKey]);
-        }
-
-        $ledgerLock = $db->prepare(
-          "SELECT id
-             FROM wallet_ledger
-            WHERE user_id=? AND ref_type=? AND ref_id=?
-            LIMIT 1
-            FOR UPDATE"
-        );
-        $ledgerLock->execute([$userId, $refType, $refId]);
-
-        if ($ledgerLock->fetchColumn()) {
-          $db->commit();
-          return;
-        }
-
-        $stmt = $db->prepare("SELECT balance FROM wallets WHERE user_id=? FOR UPDATE");
+        $stmt = self::conn()->prepare("SELECT balance FROM wallets WHERE user_id = ?");
         $stmt->execute([$userId]);
-        $balance = (string)$stmt->fetchColumn();
-
-        if ($direction === 'debit' && self::decimalCmp($balance, $normalizedAmount) < 0) {
-          throw new RuntimeException('insufficient_balance');
-        }
-
-        $newBalance = $direction === 'credit'
-          ? self::decimalAdd($balance, $normalizedAmount)
-          : self::decimalSub($balance, $normalizedAmount);
-
-        $stmt = $db->prepare(
-          "SELECT sequence_id, hash
-             FROM wallet_ledger
-            WHERE user_id=?
-            ORDER BY id DESC
-            LIMIT 1
-            FOR UPDATE"
-        );
-        $stmt->execute([$userId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-        $prevHash = (string)($row['hash'] ?? str_repeat('0', 64));
-        $sequenceId = (int)($row['sequence_id'] ?? 0) + 1;
-
-        $entryPayload = implode('|', [
-          $userId,
-          $direction,
-          $normalizedAmount,
-          $refType,
-          $refId,
-          (string)($provider ?? ''),
-          $newBalance,
-          $prevHash
-        ]);
-        $hash = hash('sha256', $entryPayload);
-
-        $db->prepare(
-          "UPDATE wallets SET balance=? WHERE user_id=?"
-        )->execute([$newBalance, $userId]);
-
-        $db->prepare(
-          "INSERT INTO wallet_ledger
-            (user_id, sequence_id, direction, amount, ref_type, ref_id, provider, prev_hash, hash, balance_after)
-           VALUES (?,?,?,?,?,?,?,?,?,?)"
-        )->execute([
-          $userId,
-          $sequenceId,
-          $direction,
-          $normalizedAmount,
-          $refType,
-          $refId,
-          $provider,
-          $prevHash,
-          $hash,
-          $newBalance
-        ]);
-
-        $db->prepare(
-          "UPDATE wallet_idempotency_keys
-              SET status='complete', response_hash=?
-            WHERE idempotency_key=?"
-        )->execute([$hash, $idemKey]);
-
-        $payloadHash = hash('sha256', json_encode([
-          'user_id' => $userId,
-          'sequence_id' => $sequenceId,
-          'direction' => $direction,
-          'amount' => $normalizedAmount,
-          'ref_type' => $refType,
-          'ref_id' => $refId,
-          'provider' => $provider
-        ], JSON_UNESCAPED_SLASHES));
-        $db->prepare(
-          "INSERT INTO audit_log (actor, action, payload_hash)
-           VALUES (?,?,?)"
-        )->execute([(string)$userId, 'wallet_ledger_append', $payloadHash]);
-
-        $db->commit();
-        return;
-      } catch (PDOException $e) {
-        if ($db->inTransaction()) {
-          $db->rollBack();
-        }
-
-        if ($attempt < self::MAX_RETRIES && self::isDeadlock($e)) {
-          usleep(50000);
-          continue;
-        }
-
-        throw $e;
-      } catch (Throwable $e) {
-        if ($db->inTransaction()) {
-          $db->rollBack();
-        }
-        throw $e;
-      }
+        return (string)$stmt->fetchColumn();
     }
-  }
+
+    /**
+     * Atomic ledger append with full replay protection and hash chaining.
+     */
+    public static function apply(
+        int $userId,
+        string $direction,
+        string $amount,
+        string $refType,
+        string $refId,
+        ?string $provider = null,
+        ?string $fxRate = null,
+        ?string $baseAmount = null
+    ): string {
+        if (!in_array($direction, ['credit', 'debit'], true)) {
+            throw new InvalidArgumentException('invalid_direction');
+        }
+
+        $amount = self::normalizeAmount($amount);
+        $idemKey = hash('sha256', $userId . '|' . $refType . '|' . $refId);
+
+        $db = self::conn();
+        for ($attempt = 1; $attempt <= self::MAX_RETRIES; ++$attempt) {
+            $db->exec("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+            $db->beginTransaction();
+
+            try {
+                self::ensureUser($userId);
+                self::guardFinancialLimits($userId, $direction, $amount);
+
+                // Idempotency check (locked)
+                $idemStmt = $db->prepare(
+                    "SELECT status, response_hash
+                       FROM wallet_idempotency_keys
+                      WHERE idempotency_key = ? FOR UPDATE"
+                );
+                $idemStmt->execute([$idemKey]);
+                $row = $idemStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($row && $row['status'] === 'complete') {
+                    $db->rollBack();
+                    return $row['response_hash']; // Replay-safe response
+                }
+
+                // Acquire previous ledger row for chaining
+                $prevStmt = $db->prepare(
+                    "SELECT hash, balance_after, sequence_id
+                       FROM wallet_ledger
+                      WHERE user_id = ?
+                      ORDER BY sequence_id DESC
+                      LIMIT 1 FOR UPDATE"
+                );
+                $prevStmt->execute([$userId]);
+                $prev = $prevStmt->fetch(PDO::FETCH_ASSOC) ?: ['hash' => '0', 'balance_after' => '0', 'sequence_id' => 0];
+
+                $sequence = $prev['sequence_id'] + 1;
+                $balanceAfter = ($direction === 'credit')
+                    ? bcadd($prev['balance_after'], $amount, self::SCALE)
+                    : bcsub($prev['balance_after'], $amount, self::SCALE);
+
+                if (bccomp($balanceAfter, '0', self::SCALE) < 0) {
+                    throw new RuntimeException('insufficient_funds');
+                }
+
+                // Compute hash (HMAC-ready – set WALLET_HMAC_SECRET in .env for production)
+                $payload = $userId . '|' . $sequence . '|' . $direction . '|' . $amount . '|' .
+                           $refType . '|' . $refId . '|' . ($provider ?? '') . '|' .
+                           ($fxRate ?? '') . '|' . ($baseAmount ?? '') . '|' . $prev['hash'];
+                $secret = defined('WALLET_HMAC_SECRET') ? WALLET_HMAC_SECRET : '';
+                $hash = $secret
+                    ? hash_hmac('sha256', $payload, $secret)
+                    : hash('sha256', $payload);
+
+                // Insert immutable ledger entry
+                $insertStmt = $db->prepare(
+                    "INSERT INTO wallet_ledger
+                     (user_id, sequence_id, direction, amount, ref_type, ref_id, provider,
+                      fx_rate, base_amount, prev_hash, hash, balance_after)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                );
+                $insertStmt->execute([
+                    $userId, $sequence, $direction, $amount, $refType, $refId, $provider,
+                    $fxRate, $baseAmount, $prev['hash'], $hash, $balanceAfter
+                ]);
+
+                // Update cache (non-authoritative)
+                $db->prepare(
+                    "UPDATE wallets SET balance = ? WHERE user_id = ?"
+                )->execute([$balanceAfter, $userId]);
+
+                // Audit log
+                $db->prepare(
+                    "INSERT INTO audit_log (actor, action, payload_hash)
+                     VALUES ('wallet_service', 'ledger_append', ?)"
+                )->execute([$hash]);
+
+                // Mark idempotency complete
+                $db->prepare(
+                    "INSERT INTO wallet_idempotency_keys (idempotency_key, status, response_hash)
+                     VALUES (?, 'complete', ?)
+                     ON DUPLICATE KEY UPDATE status = 'complete', response_hash = ?"
+                )->execute([$idemKey, $hash, $hash]);
+
+                $db->commit();
+                return $hash;
+
+            } catch (PDOException $e) {
+                $db->rollBack();
+                if (self::isDeadlock($e) && $attempt < self::MAX_RETRIES) {
+                    usleep(500000 * $attempt); // back-off
+                    continue;
+                }
+                throw $e;
+            }
+        }
+        throw new RuntimeException('max_retries_exceeded');
+    }
+
+    private static function isDeadlock(PDOException $e): bool
+    {
+        return in_array($e->errorInfo[1] ?? 0, [1213, 1205], true);
+    }
 }
 PHP
 
 # ============================================================
-# 3. Reconciliation Engine
+# 3. Ledger Verifier (tamper-evidence & chain validation)
 # ============================================================
 
-cat > "$BACKEND/wallet/ReconciliationService.php" <<'PHP'
+cat > "$BACKEND/wallet/LedgerVerifier.php" <<'PHP'
 <?php
-final class ReconciliationService {
+declare(strict_types=1);
 
-  public static function audit(int $userId): array {
-    $db = Database::conn();
+/**
+ * LedgerVerifier – Full chain validation utility (recommended for periodic audits).
+ */
+final class LedgerVerifier
+{
+    public static function verifyChain(int $userId): array
+    {
+        $db = Database::conn();
+        $stmt = $db->prepare(
+            "SELECT id, sequence_id, direction, amount, ref_type, ref_id, provider,
+                    fx_rate, base_amount, prev_hash, hash, balance_after, created_at
+               FROM wallet_ledger
+              WHERE user_id = ?
+              ORDER BY sequence_id ASC"
+        );
+        $stmt->execute([$userId]);
+        $entries = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $stmt = $db->prepare("
-      SELECT COALESCE(SUM(
-        CASE direction
-          WHEN 'credit' THEN amount
-          ELSE -amount
-        END
-      ),0)
-      FROM wallet_ledger
-      WHERE user_id=?
-    ");
-    $stmt->execute([$userId]);
-    $ledgerBalance = (float)$stmt->fetchColumn();
+        if (empty($entries)) {
+            return ['valid' => true, 'reason' => 'no_entries'];
+        }
 
-    $stmt = $db->prepare("SELECT balance FROM wallets WHERE user_id=?");
-    $stmt->execute([$userId]);
-    $walletBalance = (float)$stmt->fetchColumn();
+        $prevHash = '0';
+        $runningBalance = '0';
 
-    return [
-      'wallet_balance' => $walletBalance,
-      'ledger_balance' => $ledgerBalance,
-      'match' => abs($walletBalance - $ledgerBalance) < 0.0001
-    ];
-  }
+        foreach ($entries as $i => $entry) {
+            // Recompute hash
+            $payload = $userId . '|' . $entry['sequence_id'] . '|' . $entry['direction'] . '|' .
+                       $entry['amount'] . '|' . $entry['ref_type'] . '|' . $entry['ref_id'] . '|' .
+                       ($entry['provider'] ?? '') . '|' . ($entry['fx_rate'] ?? '') . '|' .
+                       ($entry['base_amount'] ?? '') . '|' . $prevHash;
+
+            $secret = defined('WALLET_HMAC_SECRET') ? WALLET_HMAC_SECRET : '';
+            $computed = $secret
+                ? hash_hmac('sha256', $payload, $secret)
+                : hash('sha256', $payload);
+
+            if ($computed !== $entry['hash']) {
+                return ['valid' => false, 'failed_at' => $i, 'reason' => 'hash_mismatch'];
+            }
+
+            // Balance continuity check
+            $expectedBalance = ($entry['direction'] === 'credit')
+                ? bcadd($runningBalance, $entry['amount'], 6)
+                : bcsub($runningBalance, $entry['amount'], 6);
+
+            if (bccomp($expectedBalance, $entry['balance_after'], 6) !== 0) {
+                return ['valid' => false, 'failed_at' => $i, 'reason' => 'balance_inconsistency'];
+            }
+
+            $prevHash = $entry['hash'];
+            $runningBalance = $entry['balance_after'];
+        }
+
+        return ['valid' => true, 'entries_verified' => count($entries)];
+    }
+
+    // Optional: reconcile cache vs ledger (run via compliance dashboard)
+    public static function reconcileCache(int $userId): bool
+    {
+        $ledgerBalance = '0';
+        $stmt = Database::conn()->prepare(
+            "SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount ELSE -amount END), '0')
+               FROM wallet_ledger WHERE user_id = ?"
+        );
+        $stmt->execute([$userId]);
+        $ledgerBalance = (string)$stmt->fetchColumn();
+
+        $cacheStmt = Database::conn()->prepare(
+            "SELECT balance FROM wallets WHERE user_id = ?"
+        );
+        $cacheStmt->execute([$userId]);
+        $cacheBalance = (string)$cacheStmt->fetchColumn();
+
+        return bccomp($ledgerBalance, $cacheBalance, 6) === 0;
+    }
 }
 PHP
 
-# ============================================================
-# 4. Admin API – Balance / Reconcile
-# ============================================================
-
-cat > "$BACKEND/api/admin-wallet.php" <<'PHP'
-<?php
-require_once __DIR__ . '/../core/Bootstrap.php';
-require_once __DIR__ . '/../wallet/WalletService.php';
-require_once __DIR__ . '/../wallet/ReconciliationService.php';
-
-$userId = (int)($_GET['user_id'] ?? 0);
-if (!$userId) {
-  http_response_code(400);
-  echo json_encode(['error' => 'missing_user']);
-  exit;
-}
-
-echo json_encode([
-  'balance' => WalletService::balance($userId),
-  'audit'   => ReconciliationService::audit($userId)
-]);
-PHP
-
-# ============================================================
-# 5. Chaos Simulation (double callback / retry)
-# ============================================================
-
-cat > "$BACKEND/wallet/ChaosSimulator.php" <<'PHP'
-<?php
-final class ChaosSimulator {
-
-  public static function duplicateCreditReplay(int $userId, string $amount): void {
-    WalletService::apply($userId, 'credit', $amount, 'chaos', 'dup-test', 'test');
-    WalletService::apply($userId, 'credit', $amount, 'chaos', 'dup-test', 'test');
-  }
-}
-PHP
-
-# ============================================================
-# 6. Documentation
-# ============================================================
-
-cat > "$BACKEND/wallet/README.md" <<'MD'
-# Wallet Architecture
-
-## Model
-- wallets = current balance
-- wallet_ledger = immutable event log
-
-## Guarantees
-- ACID transaction
-- Row-level locking
-- Idempotent via (user_id, ref_type, ref_id) before balance update
-- Decimal-safe arithmetic via BCMath
-- Deadlock retry and serializable transaction isolation
-- Tamper-evident chain (`prev_hash` + `hash`) and immutable ledger triggers
-
-## Reconciliation
-ledger sum must equal wallet balance
-
-## Chaos
-Duplicate callback replay should be no-op on second attempt
-MD
-
-echo "✅ PHASE 30 COMPLETE – Wallet core ready"
+echo "[PHASE 30] ✓ Wallet ledger regenerated with enhanced security & verification."

@@ -7,9 +7,9 @@ if check_stage_state "$STAGE_NAME"; then exit 0; fi
 log "INFO" "Starting Stage 6: Scale & Reliability"
 progress "Scale & Reliability"
 
-phases='"90-cloudflare.sh","91-hot-standby.sh","95-k8s.sh","96-bank-psp.sh","107-meta-orchestrator.sh","110-runtest-report.sh"'
+phases='"90-cloudflare.sh","91-hot-standby.sh","95-k8s.sh","96-bank-psp.sh","107-meta-orchestrator.sh","111-deps-upgrade.sh","110-runtest-report.sh"'
 
-for p in 90-cloudflare 91-hot-standby 95-k8s 96-bank-psp 107-meta-orchestrator 110-runtest-report; do
+for p in 90-cloudflare 91-hot-standby 95-k8s 96-bank-psp 107-meta-orchestrator 111-deps-upgrade 110-runtest-report; do
     "$PHASES_DIR/${p}.sh" || { rollback_stage; exit 1; }
 done
 

@@ -7,14 +7,15 @@ Deliver a deterministic, reproducible, compliance-oriented installer workflow th
 
 1. **Installer Control Layer**
    - `installer/zgaming-ultra-installer.sh`
-   - Entry modes: `quick`, `full`, `diagnostics`, `audit`, `menu`
+   - Entry modes: `quick`, `full`, `full-project`, `no-cost`, `diagnostics`, `audit`, `package`, `plan`, `menu`
 2. **Platform Execution Layer**
    - `generator/meta-master.sh`
    - Reused from existing phase orchestrator
 3. **Evidence Layer**
-   - `installer/artifacts/repo-manifest.sha256`
-   - `installer/artifacts/sbom-lite.spdx.json`
-   - `installer/reports/compliance-report.json`
+  - `installer/artifacts/repo-manifest.sha256`
+  - `installer/artifacts/sbom-lite.spdx.json`
+  - `installer/artifacts/infrastructure-inventory.json`
+  - `installer/reports/compliance-report.json`
    - JSONL structured logs in `installer/reports/`
 
 ## Pseudo-code
@@ -37,6 +38,11 @@ run_full():
   run meta-master installer pipeline
   run container/network diagnostics
 
+run_no_cost():
+  skip docker-dependent installer phase
+  generate manifest + compliance + infrastructure inventory + SBOM
+  package immutable artifacts + SHA256SUMS (without forcing .zip bundle)
+
 run_audit():
   manifest + compliance + SBOM only
 ```
@@ -58,6 +64,9 @@ run_audit():
 # Full platform install + diagnostics
 ./installer/zgaming-ultra-installer.sh full
 
+# No-cost artifact workflow (no Docker dependency)
+./installer/zgaming-ultra-installer.sh no-cost
+
 # Integrate through existing meta-master command
 ./generator/meta-master.sh clean-installer full
 ```
@@ -66,6 +75,7 @@ run_audit():
 
 - `installer/artifacts/repo-manifest.sha256`
 - `installer/artifacts/sbom-lite.spdx.json`
+- `installer/artifacts/infrastructure-inventory.json`
 - `installer/reports/compliance-report.json`
 - `installer/reports/install-<timestamp>.jsonl`
 

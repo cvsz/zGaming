@@ -13,11 +13,17 @@
     "ops:verify": "./scripts/verify-ops-guardrails.sh"
   },
   "dependencies": {
+    "@fastify/jwt": "^10.0.0",
+    "@fastify/rate-limit": "^10.3.0",
     "@wagmi/core": "^2.22.1",
-    "viem": "^2.39.0"
+    "fastify": "^5.6.1",
+    "pg": "^8.16.3",
+    "viem": "^2.39.0",
+    "zod": "^4.1.11"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
+    "@types/pg": "^8.15.5",
     "playwright": "^1.55.1",
     "tsx": "^4.20.5",
     "turbo": "^2.5.1",

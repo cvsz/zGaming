@@ -1,5 +1,6 @@
 import { createConfig, http } from "@wagmi/core";
 import { mainnet, polygon, arbitrum } from "viem/chains";
+import type { Chain } from "viem/chains";
 import type { ChainRuntimeConfig } from "./types";
 
 const CHAIN_MAP = {
@@ -21,8 +22,11 @@ export function createDeterministicWagmiConfig(config: ChainRuntimeConfig) {
     throw new Error("No configured chains for Wagmi/Viem config");
   }
 
+  const [firstChain, ...restChains] = chains;
+  const wagmiChains: [Chain, ...Chain[]] = [firstChain, ...restChains];
+
   return createConfig({
-    chains,
+    chains: wagmiChains,
     transports: chains.reduce<Record<number, ReturnType<typeof http>>>((acc, chain, index) => {
       acc[chain.id] = http(config.rpcEndpoints[index % config.rpcEndpoints.length]);
       return acc;

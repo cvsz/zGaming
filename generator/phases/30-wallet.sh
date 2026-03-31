@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS wallets (
 CREATE TABLE IF NOT EXISTS wallet_ledger (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT NOT NULL,
-  sequence_id BIGINT NOT NULL,
+  sequence_id BIGINT NOT NULL COMMENT 'Monotonically increasing per user',
   direction ENUM('debit','credit') NOT NULL,
   amount DECIMAL(18,6) NOT NULL,
   ref_type VARCHAR(32) NOT NULL,
@@ -394,7 +394,7 @@ PHP
 # 4. Reconciliation Engine (BC-Math version)
 # ============================================================
 
-cat > "$BACKEND/wallet/ReconciliationService.php" <<'PHP'
+cat > "$BACKEND/wallet/LedgerVerifier.php" <<'PHP'
 <?php
 declare(strict_types=1);
 

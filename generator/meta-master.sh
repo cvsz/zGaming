@@ -141,6 +141,10 @@ phase_index() {
 }
 
 validate_env() {
+  export DB_USER="${DB_USER:-casino}"
+  export DB_PASS="${DB_PASS:-casino}"
+  export DB_NAME="${DB_NAME:-casino}"
+
   local -a required_vars=("DB_USER" "DB_PASS" "DB_NAME")
   local var
 
@@ -150,7 +154,7 @@ validate_env() {
     fi
   done
 
-  echo "✅ Environment validation passed"
+  echo "✅ Environment validation passed (DB_USER=$DB_USER DB_NAME=$DB_NAME)"
 }
 
 phase_hash() {

@@ -22,7 +22,7 @@ b5d806e562958da92056493e016dce6add12f1e1d8066be53f27529d6517a75d  ./docs/ultra-m
 1575e1af4a95f12f70b4ee6a6adce8160953d93ea17dc2611b90883ccc3ad3b8  ./generator/VERSION
 ab5c9ecba00f23aedca8a256d7ede7c38d87bf99772db0a054c7e8e36326afa4  ./generator/lib/assert.sh
 6ad653074caf0b27d9da75b0c4341bafb8563ca585c0cf24949d61c7a730d9e1  ./generator/lib/bash_guard.sh
-d423d49d5c78fe46e2b8ab29c263c2761f8df47feecb9ba23934e5da3b772f3a  ./generator/meta-master.sh
+bc7fdfed8d8814cb2adbe56bd516f7c2498604c2d04b5a047fb9e2d6fab334d5  ./generator/meta-master.sh
 22ab89730cec942da7647bbca4072dc59a829171a8e4e5bcf2ec44f653bf9e89  ./generator/phases/00-guard.sh
 af281218f4b410e02d96e61fce1a89f10a08af350626339e85255788af9644bd  ./generator/phases/10-backend.sh
 2f44f15fbb856e04687383dfa02bfe26a73f3197a545fb105edd7520f38b0ac8  ./generator/phases/100-bank-reconciliation.sh

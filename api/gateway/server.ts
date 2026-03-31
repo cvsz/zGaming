@@ -1,8 +1,9 @@
 import Fastify from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import jwt from "@fastify/jwt";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
+import { Pool } from "pg";
 import { verifyWebhookSignature } from "./webhook-auth";
 
 async function startServer(): Promise<void> {
@@ -12,6 +13,7 @@ async function startServer(): Promise<void> {
   const adminProvisioningSecret = process.env.INTERNAL_ADMIN_TOKEN;
   const jwtIssuer = process.env.JWT_ISSUER;
   const jwtAudience = process.env.JWT_AUDIENCE;
+  const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
   const seenWebhookEvents = new Map<string, number>();
 
   if (!jwtSecret || jwtSecret === "change-me") {
@@ -40,6 +42,16 @@ async function startServer(): Promise<void> {
     secret: jwtSecret,
   });
 
+  if (pool) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS webhook_events (
+        event_id TEXT PRIMARY KEY,
+        payload_hash CHAR(64) NOT NULL,
+        received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+  }
+
   const loginSchema = z.object({
     userId: z.string().min(1),
     role: z.enum(["player", "admin", "operator"]),
@@ -53,7 +65,11 @@ async function startServer(): Promise<void> {
     const isPrivilegedRole = payload.role !== "player";
 
     if (isPrivilegedRole && internalAuthHeader !== adminProvisioningSecret) {
-      throw app.httpErrors.unauthorized("privileged role minting requires x-internal-auth");
+      const err: Error & { statusCode?: number } = new Error(
+        "privileged role minting requires x-internal-auth",
+      );
+      err.statusCode = 401;
+      throw err;
     }
     const token = await request.server.jwt.sign(payload, {
       expiresIn: "15m",
@@ -85,25 +101,43 @@ async function startServer(): Promise<void> {
       signature,
       secret: internalWebhookSecret,
       eventId,
+      maxAgeMs: 5 * 60 * 1000,
     });
 
     if (!valid) {
       return reply.code(401).send({ error: "Invalid webhook signature" });
     }
-    const now = Date.now();
-    const ttlMs = 10 * 60 * 1000;
-    const existingTs = seenWebhookEvents.get(eventId);
-    if (existingTs && now - existingTs < ttlMs) {
-      return reply.code(409).send({ error: "Replay detected for webhook event id" });
-    }
-    seenWebhookEvents.set(eventId, now);
-    for (const [id, ts] of seenWebhookEvents.entries()) {
-      if (now - ts > ttlMs) {
-        seenWebhookEvents.delete(id);
+
+    const payloadHash = createHash("sha256").update(payload).digest("hex");
+
+    if (pool) {
+      const inserted = await pool.query(
+        `INSERT INTO webhook_events (event_id, payload_hash)
+         VALUES ($1, $2)
+         ON CONFLICT (event_id) DO NOTHING
+         RETURNING event_id`,
+        [eventId, payloadHash],
+      );
+
+      if ((inserted.rowCount ?? 0) === 0) {
+        return reply.code(409).send({ error: "Replay detected for webhook event id" });
+      }
+    } else {
+      const now = Date.now();
+      const ttlMs = 10 * 60 * 1000;
+      const existingTs = seenWebhookEvents.get(eventId);
+      if (existingTs && now - existingTs < ttlMs) {
+        return reply.code(409).send({ error: "Replay detected for webhook event id" });
+      }
+      seenWebhookEvents.set(eventId, now);
+      for (const [id, ts] of seenWebhookEvents.entries()) {
+        if (now - ts > ttlMs) {
+          seenWebhookEvents.delete(id);
+        }
       }
     }
 
-    return { accepted: true };
+    return { accepted: true, idempotent: true };
   });
 
   app.get(

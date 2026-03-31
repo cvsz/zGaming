@@ -11,11 +11,12 @@ set -euo pipefail
 
 PROVIDER="$1"
 DATE="${2:-$(date -d yesterday +%F)}"
+DB_PASSWORD="${DB_PASSWORD:-${DB_PASS:-}}"
 
 echo "[PHASE 93] SETTLEMENT $PROVIDER $DATE"
 
 docker exec casino-db \
- mysql -u$DB_USER -p$DB_PASS $DB_NAME \
+ env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" \
  -e "
 INSERT INTO provider_settlement (provider,date,gross,net,currency,status)
 SELECT
@@ -35,7 +36,7 @@ ON DUPLICATE KEY UPDATE
 "
 
 docker exec casino-db \
- mysql -u$DB_USER -p$DB_PASS $DB_NAME \
+ env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" \
  -e "
 SELECT
  s.provider,

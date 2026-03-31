@@ -43,6 +43,40 @@ CREATE TABLE IF NOT EXISTS wallet_ledger (
   KEY idx_user_created (user_id, created_at)
 );
 
+SET @has_legacy_ref_index := (
+  SELECT COUNT(*)
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'wallet_ledger'
+    AND index_name = 'uniq_ref'
+    AND seq_in_index = 1
+    AND column_name = 'ref_type'
+);
+
+SET @drop_legacy_idx_sql := IF(@has_legacy_ref_index > 0,
+  'ALTER TABLE wallet_ledger DROP INDEX uniq_ref',
+  'SELECT 1');
+PREPARE drop_legacy_idx_stmt FROM @drop_legacy_idx_sql;
+EXECUTE drop_legacy_idx_stmt;
+DEALLOCATE PREPARE drop_legacy_idx_stmt;
+
+SET @has_new_ref_index := (
+  SELECT COUNT(*)
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'wallet_ledger'
+    AND index_name = 'uniq_ref'
+    AND seq_in_index = 1
+    AND column_name = 'user_id'
+);
+
+SET @add_new_idx_sql := IF(@has_new_ref_index = 0,
+  'ALTER TABLE wallet_ledger ADD UNIQUE KEY uniq_ref (user_id, ref_type, ref_id)',
+  'SELECT 1');
+PREPARE add_new_idx_stmt FROM @add_new_idx_sql;
+EXECUTE add_new_idx_stmt;
+DEALLOCATE PREPARE add_new_idx_stmt;
+
 DELIMITER $$
 
 DROP TRIGGER IF EXISTS wallet_ledger_immutable_update$$

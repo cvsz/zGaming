@@ -24,9 +24,11 @@ fi
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 
-for required_var in DB_USER DB_PASS DB_NAME; do
+for required_var in DB_USER DB_NAME; do
   [[ -n "${!required_var:-}" ]] || { echo "❌ $required_var missing in backend/.env"; exit 1; }
 done
+DB_PASSWORD="${DB_PASSWORD:-${DB_PASS:-}}"
+[[ -n "$DB_PASSWORD" ]] || { echo "❌ DB_PASSWORD/DB_PASS missing in backend/.env"; exit 1; }
 
 if [[ -z "${BACKUP_KEY:-}" ]]; then
   echo "⚠️ BACKUP_KEY missing in backend/.env; generating one"
@@ -35,7 +37,7 @@ if [[ -z "${BACKUP_KEY:-}" ]]; then
   echo "✅ BACKUP_KEY generated and appended to backend/.env"
 fi
 
-export BACKUP_KEY DB_PASS
+export BACKUP_KEY DB_PASSWORD
 
 # --------------------------------------------------
 # Docker prerequisite checks
@@ -113,7 +115,7 @@ ensure_db_container
 echo "⏳ Waiting for MySQL in container $DB_CONTAINER"
 MYSQL_READY=0
 for i in {1..30}; do
-  if docker exec "$DB_CONTAINER" mysqladmin ping -u"$DB_USER" -p"$DB_PASS" --silent; then
+  if docker exec "$DB_CONTAINER" env MYSQL_PWD="$DB_PASSWORD" mysqladmin ping -u"$DB_USER" --silent; then
     MYSQL_READY=1
     break
   fi
@@ -132,10 +134,10 @@ TMP="$(mktemp -d)"
 mkdir -p "$TMP/db" "$TMP/config" "$TMP/meta"
 
 echo "📦 Dumping database"
-docker exec "$DB_CONTAINER" mysqldump \
+docker exec "$DB_CONTAINER" env MYSQL_PWD="$DB_PASSWORD" mysqldump \
   --single-transaction \
   --no-tablespaces \
-  -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+  -u"$DB_USER" "$DB_NAME" \
   > "$TMP/db/db.sql"
 
 # --------------------------------------------------

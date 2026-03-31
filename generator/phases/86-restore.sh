@@ -27,7 +27,8 @@ ENV_FILE="$ROOT/backend/.env"
 
 # shellcheck disable=SC1090
 source "$ENV_FILE"
-export BACKUP_KEY DB_PASS
+DB_PASSWORD="${DB_PASSWORD:-${DB_PASS:-}}"
+export BACKUP_KEY DB_PASSWORD
 
 [[ -n "${BACKUP_KEY:-}" ]] || { echo "❌ BACKUP_KEY missing"; exit 1; }
 
@@ -53,7 +54,7 @@ cp "$TMP/config/.env" "$ENV_FILE"
 # --------------------------------------------------
 echo "⏳ Waiting for MySQL"
 for i in {1..30}; do
-  if docker exec "$DB_CONTAINER" mysqladmin ping -u"$DB_USER" -p"$DB_PASS" --silent; then
+  if docker exec "$DB_CONTAINER" env MYSQL_PWD="$DB_PASSWORD" mysqladmin ping -u"$DB_USER" --silent; then
     break
   fi
   sleep 2
@@ -63,7 +64,7 @@ done
 # Restore DB
 # --------------------------------------------------
 docker exec -i "$DB_CONTAINER" \
-  mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+  env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" \
   < "$TMP/db/db.sql"
 
 rm -rf "$TMP"

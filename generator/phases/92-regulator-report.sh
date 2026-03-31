@@ -11,13 +11,14 @@ set -euo pipefail
 
 DAY="${1:-$(date -d yesterday +%F)}"
 OUT="reports/regulator-$DAY"
+DB_PASSWORD="${DB_PASSWORD:-${DB_PASS:-}}"
 
 mkdir -p "$OUT"
 
 echo "[PHASE 92] REGULATOR REPORT $DAY"
 
 docker exec casino-db \
-  mysql -u$DB_USER -p$DB_PASS $DB_NAME \
+  env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" \
   -e "
 SELECT
  DATE(created_at) day,
@@ -31,7 +32,7 @@ GROUP BY provider,currency;
 " > "$OUT/transactions.csv"
 
 docker exec casino-db \
-  mysql -u$DB_USER -p$DB_PASS $DB_NAME \
+  env MYSQL_PWD="$DB_PASSWORD" mysql -u"$DB_USER" "$DB_NAME" \
   -e "
 SELECT provider,date,net,status
 FROM provider_settlement

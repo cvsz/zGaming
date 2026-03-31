@@ -224,7 +224,7 @@ run_readiness_check() {
   [[ -n "$ready_cmd" ]] || return 0
 
   echo "⏳ Readiness check for $phase"
-  if ! bash -lc "$ready_cmd"; then
+  if ! bash -c "$ready_cmd"; then
     fail "Readiness check failed for $phase"
   fi
 

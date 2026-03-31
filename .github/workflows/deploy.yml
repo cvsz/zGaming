@@ -78,7 +78,7 @@ jobs:
           mv "${temp_bundle}" "${bundle}"
 
       - name: Upload source bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: zgaming-source-${{ steps.deploy_env.outputs.tag }}
           path: zgaming-source-${{ steps.deploy_env.outputs.tag }}.tar.gz

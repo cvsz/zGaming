@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-IFS=$'
-	'
+IFS=$''
 
 REPO_URL="https://github.com/CVSz/zGaming.git"
 WORKDIR="${WORKDIR:-zGaming}"

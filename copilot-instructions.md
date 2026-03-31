@@ -1,3 +1,370 @@
+# 🧠 MASTER COPILOT INSTRUCTIONS — zGaming (INSTITUTIONAL GRADE)
+
+## ⚠️ SYSTEM CLASSIFICATION
+
+This repository is a:
+
+> **Real-money financial + gaming system**
+
+All generated code MUST satisfy:
+
+* financial correctness
+* auditability
+* exploit resistance
+* deterministic execution
+
+Failure = **real monetary loss + regulatory breach**
+
+---
+
+# 🔒 GLOBAL ENFORCEMENT RULES
+
+## ❌ NEVER DO
+
+* Use floating point for money
+* Update/delete ledger entries
+* Skip transactions for wallet operations
+* Trust external input (API/webhook)
+* Log secrets (keys, passwords)
+* Introduce non-idempotent operations
+* Use in-memory state for financial logic
+
+## ✅ ALWAYS DO
+
+* Use append-only ledger
+* Enforce idempotency
+* Use transactions + row locks
+* Validate all inputs strictly
+* Use environment variables
+* Log every critical action
+* Design for replay safety
+
+---
+
+# 💰 FINANCIAL CORRECTNESS (CRITICAL)
+
+## Ledger Rules
+
+* Ledger = **source of truth**
+* Balance = derived ONLY
+
+### Required invariants:
+
+* sum(ledger) == wallet balance
+* no negative balance
+* no duplicate ref_id per user
+
+---
+
+## Transaction Rules
+
+Every wallet operation MUST:
+
+1. Check idempotency
+2. Lock row (`FOR UPDATE`)
+3. Apply change
+4. Insert ledger record
+5. Commit
+
+---
+
+## Money Handling
+
+* Use BCMath ONLY
+* All amounts stored as string DECIMAL
+* Never use float/double
+
+---
+
+# 🔐 SECURITY CONSTRAINTS
+
+## Authentication
+
+* JWT must be:
+
+  * signed
+  * short-lived (<5 min)
+  * verified for issuer
+
+## Webhooks
+
+* MUST verify:
+
+  * HMAC signature
+  * timestamp window
+  * idempotency key
+
+## Secrets
+
+* NEVER in code
+* ONLY via env / secret manager
+
+---
+
+# 🧱 ENGINEERING DISCIPLINE
+
+## Code Requirements
+
+* deterministic
+* idempotent
+* testable
+* observable
+
+## Error Handling
+
+* fail fast
+* no silent failures
+* structured logs (JSON)
+
+---
+
+# 🐳 DEVOPS DISCIPLINE
+
+## Scripts
+
+All bash scripts MUST:
+
+```bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+```
+
+## Requirements
+
+* idempotent execution
+* dependency checks
+* readiness checks
+
+---
+
+## Docker
+
+* no hardcoded credentials
+* healthchecks required
+* services must start cleanly
+
+---
+
+# 🧾 COMPLIANCE EXPECTATIONS
+
+System MUST support:
+
+## AML
+
+* transaction monitoring
+* suspicious activity detection
+
+## KYC
+
+* required before withdrawal
+
+## Audit
+
+* append-only logs
+* hash chain integrity
+
+---
+
+# 🔴 RED TEAM AWARENESS
+
+Copilot MUST assume attacker mindset:
+
+### Always check:
+
+* race conditions
+* replay attacks
+* signature bypass
+* privilege escalation
+* double-spend scenarios
+
+---
+
+# 🧪 STATIC ANALYSIS RULES
+
+## ESLint (TypeScript)
+
+Enforce:
+
+* no `any` in financial modules
+* required input validation
+* no direct DB access in API layer
+
+## PHPStan
+
+Level: max
+
+Custom rules:
+
+* forbid float in wallet code
+* enforce transaction usage
+* forbid direct SQL outside services
+
+---
+
+# 🔐 PRE-COMMIT HOOK (MANDATORY)
+
+## File: `.git/hooks/pre-commit`
+
+```bash
+#!/usr/bin/env bash
+set -e
+
+echo "🔍 Running pre-commit security checks..."
+
+# 1. Secret scan
+if grep -r "PRIVATE_KEY\|SECRET\|API_KEY" .; then
+  echo "❌ Secret detected"
+  exit 1
+fi
+
+# 2. Float usage in wallet
+if grep -r "float" backend/wallet; then
+  echo "❌ Float usage in wallet"
+  exit 1
+fi
+
+# 3. Ledger mutation check
+if grep -r "UPDATE wallet_ledger\|DELETE FROM wallet_ledger" .; then
+  echo "❌ Ledger mutation detected"
+  exit 1
+fi
+
+# 4. Run lint
+pnpm lint || exit 1
+
+# 5. PHP lint
+find backend -name "*.php" -exec php -l {} \; || exit 1
+
+echo "✅ Pre-commit checks passed"
+```
+
+---
+
+# 🧾 AUTOMATED AUDIT VERIFIER
+
+## Script: `scripts/audit_verify.php`
+
+Checks:
+
+* ledger hash chain integrity
+* balance consistency
+* duplicate transactions
+
+---
+
+# 🔄 AUTOMATED RECONCILIATION CLI
+
+## Script: `scripts/reconcile.php`
+
+Must:
+
+* compare ledger vs wallet
+* detect mismatches
+* output report
+
+---
+
+# 🛡️ RUNTIME PROTECTION LAYER
+
+## Kill Switch
+
+Env flag:
+
+```
+SYSTEM_MODE=read-only
+```
+
+Disables:
+
+* withdrawals
+* settlements
+
+---
+
+## Auto Block System
+
+Trigger on:
+
+* abnormal transaction rate
+* balance anomalies
+* fraud score spike
+
+Action:
+
+* freeze account
+* log event
+
+---
+
+# 🔥 CHAOS TESTING
+
+## Goal
+
+Break system safely.
+
+## Examples
+
+* kill DB during transaction
+* duplicate callbacks
+* crash worker mid-processing
+
+System MUST:
+
+* recover safely
+* not lose money
+
+---
+
+# 🤖 FRAUD DETECTION (ADVANCED)
+
+## Features
+
+* transaction velocity
+* bet size anomaly
+* session behavior
+
+## Model Types
+
+* rule-based (baseline)
+* anomaly detection (z-score)
+* future: ML classifier
+
+---
+
+# 📊 OBSERVABILITY
+
+Logs MUST include:
+
+* user_id
+* transaction_id
+* service
+* timestamp
+
+---
+
+# 🧠 FINAL RULE
+
+Copilot must optimize for:
+
+> **safety > correctness > performance > convenience**
+
+If unsure:
+
+* block the operation
+* log it
+* require verification
+
+---
+
+# 🎯 END GOAL
+
+All generated code must move system toward:
+
+> **bank-grade, audit-compliant, exploit-resistant financial platform**
+
+---
+
+
 # 🧠 Copilot Instructions — zGaming Monorepo
 
 ## 📌 Overview

@@ -140,15 +140,38 @@ phase_index() {
   return 1
 }
 
-run_phase() {
-  local phase="$1"
+validate_env() {
+  local -a required_vars=("DB_USER" "DB_PASS" "DB_NAME")
+  local var
 
-  [[ -f "$PHASES_DIR/$phase" ]] || fail "Phase not found: $phase"
+  for var in "${required_vars[@]}"; do
+    if [[ -z "${!var:-}" ]]; then
+      fail "Missing required env var: $var"
+    fi
+  done
+
+  echo "✅ Environment validation passed"
+}
+
+phase_hash() {
+  local phase="$1"
+  sha256sum "$PHASES_DIR/$phase" | awk '{print $1}'
+}
+
+run_phase_safe() {
+  local phase="$1"
+  local phase_file="$PHASES_DIR/$phase"
+
+  [[ -f "$phase_file" ]] || fail "Phase not found: $phase"
 
   echo
   echo ">>> RUNNING PHASE: $phase"
   echo "--------------------------------------------------"
-  bash "$PHASES_DIR/$phase"
+
+  if ! bash "$phase_file"; then
+    fail "PHASE FAILED: $phase"
+  fi
+
   echo "<<< DONE: $phase"
 }
 
@@ -159,12 +182,53 @@ phase_state_file() {
 
 is_phase_completed() {
   local phase="$1"
-  [[ -f "$(phase_state_file "$phase")" ]]
+  local state_file
+  local current_hash
+  local saved_hash
+
+  state_file="$(phase_state_file "$phase")"
+  [[ -f "$state_file" ]] || return 1
+  [[ -f "$PHASES_DIR/$phase" ]] || return 1
+  current_hash="$(phase_hash "$phase")"
+  saved_hash="$(<"$state_file")"
+  [[ "$current_hash" == "$saved_hash" ]]
 }
 
 mark_phase_completed() {
   local phase="$1"
-  date -u +"%Y-%m-%dT%H:%M:%SZ" > "$(phase_state_file "$phase")"
+  phase_hash "$phase" > "$(phase_state_file "$phase")"
+}
+
+check_dependencies() {
+  local phase="$1"
+  local phase_file="$PHASES_DIR/$phase"
+  local dep_line deps dep
+
+  dep_line="$(awk -F': ' '/^# @depends:/{print $2; exit}' "$phase_file")"
+  [[ -n "$dep_line" ]] || return 0
+
+  deps="$dep_line"
+  for dep in $deps; do
+    if ! is_phase_completed "$dep"; then
+      fail "Dependency not satisfied for $phase: $dep"
+    fi
+  done
+}
+
+run_readiness_check() {
+  local phase="$1"
+  local phase_file="$PHASES_DIR/$phase"
+  local ready_cmd
+
+  ready_cmd="$(awk -F': ' '/^# @ready:/{print $2; exit}' "$phase_file")"
+  [[ -n "$ready_cmd" ]] || return 0
+
+  echo "⏳ Readiness check for $phase"
+  if ! bash -c "$ready_cmd"; then
+    fail "Readiness check failed for $phase"
+  fi
+
+  echo "✅ Readiness passed for $phase"
 }
 
 should_skip_phase() {
@@ -186,7 +250,8 @@ should_skip_phase() {
 print_summary() {
   local total="$1"
   local succeeded="$2"
-  local started_at="$3"
+  local skipped="$3"
+  local started_at="$4"
   local finished_at
 
   finished_at="$(date +%s)"
@@ -197,7 +262,8 @@ print_summary() {
   echo "--------------------------------------------------"
   echo " Total phases planned : $total"
   echo " Total phases success : $succeeded"
-  echo " Total phases failed  : $((total - succeeded))"
+  echo " Total phases skipped : $skipped"
+  echo " Total phases failed  : $((total - succeeded - skipped))"
   echo " Duration (seconds)   : $((finished_at - started_at))"
   echo "=================================================="
 }
@@ -210,6 +276,9 @@ run_all() {
   local i phase started_at total
   local -i planned=0
   local -i succeeded=0
+  local -i skipped=0
+
+  validate_env
 
   if [[ -n "$from_phase" ]]; then
     from_index="$(phase_index "$from_phase")" || fail "MM_FROM_PHASE not found in PHASE_ORDER: $from_phase"
@@ -247,7 +316,7 @@ run_all() {
       echo "--------------------------------------------------"
       echo "⚠ MM_SKIP_DOCKER_ACTIONS=1 -> skipped docker-dependent phase"
       echo "<<< SKIPPED: $phase"
-      succeeded=$((succeeded + 1))
+      skipped=$((skipped + 1))
       continue
     fi
 
@@ -255,13 +324,15 @@ run_all() {
       echo
       echo ">>> SKIPPING PHASE: $phase"
       echo "--------------------------------------------------"
-      echo "ℹ phase already completed (state file exists)"
+      echo "ℹ phase already completed (hash state matches)"
       echo "<<< SKIPPED: $phase"
-      succeeded=$((succeeded + 1))
+      skipped=$((skipped + 1))
       continue
     fi
 
-    run_phase "$phase"
+    check_dependencies "$phase"
+    run_phase_safe "$phase"
+    run_readiness_check "$phase"
     mark_phase_completed "$phase"
     succeeded=$((succeeded + 1))
 
@@ -272,7 +343,7 @@ run_all() {
     fi
   done
 
-  print_summary "$total" "$succeeded" "$started_at"
+  print_summary "$total" "$succeeded" "$skipped" "$started_at"
 
   echo
   echo "=================================================="
@@ -306,17 +377,19 @@ main() {
       bash "$ROOT/installer/zgaming-ultra-installer.sh" "$mode"
       ;;
     test)
-      run_phase "00-guard.sh"
-      run_phase "110-runtest-report.sh"
+      run_phase_safe "00-guard.sh"
+      run_phase_safe "110-runtest-report.sh"
       ;;
     doctor)
-      run_phase "00-guard.sh"
+      run_phase_safe "00-guard.sh"
       ;;
     phase)
       if [[ $# -lt 2 ]]; then
         fail "Missing phase name"
       fi
-      run_phase "$2"
+      check_dependencies "$2"
+      run_phase_safe "$2"
+      run_readiness_check "$2"
       mark_phase_completed "$2"
       ;;
     list)

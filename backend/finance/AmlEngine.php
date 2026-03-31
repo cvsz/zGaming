@@ -12,14 +12,15 @@ final class AmlEngine
     {
         $this->flagLargeTransactions($userId);
         $this->flagRapidTransactions($userId);
+        $this->flagKycRisk($userId);
     }
 
     private function flagLargeTransactions(int $userId): void
     {
-        $stmt = $this->db->prepare("SELECT id, amount FROM internal_transactions WHERE user_id=? AND amount > 10000 ORDER BY id DESC LIMIT 20");
+        $stmt = $this->db->prepare("SELECT id, transaction_id, amount FROM internal_transactions WHERE user_id=? AND amount > 10000 ORDER BY id DESC LIMIT 20");
         $stmt->execute([$userId]);
         foreach ($stmt->fetchAll() as $row) {
-            $this->createFlag($userId, 'large_transaction', 'high', ['amount' => $row['amount']], (int)$row['id']);
+            $this->createFlag($userId, 'large_transaction', 'high', ['amount' => $row['amount'], 'transaction_id' => $row['transaction_id']], (int)$row['id']);
         }
     }
 
@@ -30,6 +31,20 @@ final class AmlEngine
         $count = (int)$stmt->fetchColumn();
         if ($count > 5) {
             $this->createFlag($userId, 'velocity_1m', 'critical', ['count_1m' => $count], null);
+        }
+    }
+
+    private function flagKycRisk(int $userId): void
+    {
+        $stmt = $this->db->prepare('SELECT risk_score, sanctions_clear FROM user_compliance WHERE user_id=? LIMIT 1');
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            return;
+        }
+
+        if ((int)$row['risk_score'] >= 75 || (int)$row['sanctions_clear'] !== 1) {
+            $this->createFlag($userId, 'kyc_risk', 'high', ['risk_score' => (int)$row['risk_score'], 'sanctions_clear' => (int)$row['sanctions_clear']], null);
         }
     }
 

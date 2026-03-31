@@ -2,16 +2,18 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../audit/AuditTrail.php';
+
 final class SettlementWorker
 {
-    public function __construct(private readonly PDO $db, private readonly string $region)
+    public function __construct(private readonly PDO $db, private readonly string $region, private readonly ?AuditTrail $auditTrail = null)
     {
     }
 
     public function runOnce(): bool
     {
         $this->db->beginTransaction();
-        $stmt = $this->db->prepare("SELECT id, type, payload, retries, idempotency_key FROM settlement_queue WHERE status='pending' AND retries < 5 ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED");
+        $stmt = $this->db->prepare("SELECT id, transaction_id, type, payload, retries, idempotency_key FROM settlement_queue WHERE status='pending' AND retries < 5 ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED");
         $stmt->execute();
         $job = $stmt->fetch();
 
@@ -36,7 +38,9 @@ final class SettlementWorker
     private function processJob(array $job): void
     {
         $payload = json_decode((string)$job['payload'], true, 512, JSON_THROW_ON_ERROR);
-        $this->db->prepare('INSERT INTO internal_transactions (tx_type, external_id, user_id, amount, tx_timestamp, region, metadata) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(), ?, ?) ON DUPLICATE KEY UPDATE external_id=external_id')
-            ->execute([$job['type'], $job['idempotency_key'], $payload['user_id'] ?? null, $payload['amount'] ?? '0', $this->region, json_encode($payload, JSON_THROW_ON_ERROR)]);
+        $transactionId = (string)($job['transaction_id'] ?: ($payload['transaction_id'] ?? $job['idempotency_key']));
+        $this->db->prepare('INSERT INTO internal_transactions (transaction_id, tx_type, external_id, user_id, amount, tx_timestamp, region, metadata) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(), ?, ?) ON DUPLICATE KEY UPDATE external_id=external_id')
+            ->execute([$transactionId, $job['type'], $job['idempotency_key'], $payload['user_id'] ?? null, $payload['amount'] ?? '0', $this->region, json_encode($payload, JSON_THROW_ON_ERROR)]);
+        $this->auditTrail?->append('system', 'settlement-worker', 'settlement_processed', 'settlement_queue', (string)$job['id'], ['transaction_id' => $transactionId, 'type' => $job['type']]);
     }
 }

@@ -2,9 +2,8 @@
 
 declare(strict_types=1);
 
-interface WalletSigner
-{
-    public function signTransaction(string $unsignedPayload): string;
+require_once __DIR__ . '/../interfaces/SignerInterface.php';
 
-    public function getAddress(): string;
+interface WalletSigner extends SignerInterface
+{
 }

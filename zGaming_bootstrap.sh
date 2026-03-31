@@ -144,21 +144,21 @@ bash -n "$PHASE_37"
 # ------------------------------------------------------------
 echo "🚀 Running required phases in safe order"
 
-./generator/meta-master.sh phase 10-backend.sh
-./generator/meta-master.sh phase 20-auth.sh
-./generator/meta-master.sh phase 30-wallet.sh
-./generator/meta-master.sh phase 35-fx.sh
-./generator/meta-master.sh phase 36-fx-live.sh
-./generator/meta-master.sh phase 40-providers.sh
-./generator/meta-master.sh phase 37-currency-lock.sh
-./generator/meta-master.sh phase 38-multi-wallet.sh
-./generator/meta-master.sh phase 60-frontend.sh
-./generator/meta-master.sh phase 70-nginx.sh
+bash ./generator/meta-master.sh phase 10-backend.sh
+bash ./generator/meta-master.sh phase 20-auth.sh
+bash ./generator/meta-master.sh phase 30-wallet.sh
+bash ./generator/meta-master.sh phase 35-fx.sh
+bash ./generator/meta-master.sh phase 36-fx-live.sh
+bash ./generator/meta-master.sh phase 40-providers.sh
+bash ./generator/meta-master.sh phase 37-currency-lock.sh
+bash ./generator/meta-master.sh phase 38-multi-wallet.sh
+bash ./generator/meta-master.sh phase 60-frontend.sh
+bash ./generator/meta-master.sh phase 70-nginx.sh
 
 # ------------------------------------------------------------
 # 10. Full pipeline
 # ------------------------------------------------------------
 echo "🏁 Running full pipeline"
-./generator/meta-master.sh all
+bash ./generator/meta-master.sh all
 
 echo "✅ zGaming BOOTSTRAP ${BOOTSTRAP_VERSION} COMPLETE"

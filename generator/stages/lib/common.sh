@@ -43,7 +43,7 @@ mark_stage_completed() {
 }
 
 generate_file_checksums() {
-    find "$ROOT" -type f \( -name "*.php" -o -name "*.ts" -o -name "*.tsx" -o -name "*.sh" -o -name "*.json" -o -name "*.yml" -o -name "*.yaml" \) 2>/dev/null | head -n 400 | while read -r f; do
+    find "$ROOT" \( -name ".meta-master-state" -o -name "logs" -o -name "manifests" -o -name "reports" \) -prune -o -type f \( -name "*.php" -o -name "*.ts" -o -name "*.tsx" -o -name "*.sh" -o -name "*.json" -o -name "*.yml" -o -name "*.yaml" \) -print0 | while IFS= read -r -d '' f; do
         local rel="${f#$ROOT/}"
         local sha
         sha=$(sha256sum "$f" 2>/dev/null | awk '{print $1}')

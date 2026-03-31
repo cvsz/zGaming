@@ -99,6 +99,7 @@ PHASE_ORDER=(
   "106-auditor-handover.sh"
   "107-meta-orchestrator.sh"
   "108-release.sh"
+  "109-institutional-finance.sh"
   "110-runtest-report.sh"
 )
 

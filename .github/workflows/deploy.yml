@@ -92,20 +92,30 @@ jobs:
             sed -i "s|IMAGE_TAG_PLACEHOLDER|${{ steps.deploy_env.outputs.tag }}|g" "$file"
           done
 
-      - name: Apply manifests
+      - name: Validate deployment secrets
+        id: deploy_secrets
         env:
           KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
         run: |
           set -euo pipefail
           if [ -z "${KUBECONFIG_B64:-}" ]; then
-            echo "KUBECONFIG_B64 secret is required for deployment" >&2
-            exit 1
+            echo "KUBECONFIG_B64 secret is not configured; skipping Kubernetes apply."
+            echo "has_kubeconfig=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          echo "has_kubeconfig=true" >> "$GITHUB_OUTPUT"
           echo "$KUBECONFIG_B64" | base64 -d > kubeconfig
+
+      - name: Apply manifests
+        if: steps.deploy_secrets.outputs.has_kubeconfig == 'true'
+        run: |
+          set -euo pipefail
           export KUBECONFIG="$PWD/kubeconfig"
           kubectl apply -f .rendered-k8s/
 
       - name: Show rollout status
+        if: steps.deploy_secrets.outputs.has_kubeconfig == 'true'
         run: |
           set -euo pipefail
+          export KUBECONFIG="$PWD/kubeconfig"
           kubectl get deploy,sts,ds -A

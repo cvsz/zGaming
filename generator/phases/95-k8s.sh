@@ -14,7 +14,7 @@ echo "[PHASE 95] KUBERNETES – Helm / Kustomize / Multi-Env"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 K8S="$ROOT/k8s"
 
-mkdir -p "$K8S"/{base,overlays/{dev,staging,prod},helm/casino}
+mkdir -p "$K8S"/{base,overlays/{dev,staging,prod},helm/casino,helm/casino/templates}
 
 # ============================================================
 # 1. Base Kubernetes Manifests (Kustomize)

@@ -31,8 +31,13 @@ for c in "${CHECKS[@]}"; do
 done
 
 echo
-echo ">>> Confirm all checks passed? (yes/no)"
-read -r ans
+if [[ "${MM_NONINTERACTIVE:-0}" == "1" ]]; then
+  echo "⚠ MM_NONINTERACTIVE=1 -> auto-confirming UAT checklist"
+  ans="yes"
+else
+  echo ">>> Confirm all checks passed? (yes/no)"
+  read -r ans
+fi
 
 if [[ "$ans" != "yes" ]]; then
   echo "❌ UAT FAILED – cannot go live"

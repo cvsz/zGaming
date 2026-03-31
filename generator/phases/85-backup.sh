@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-echo "[PHASE 85] BACKUP"
+echo "[PHASE 85] BACKUP – Safe Mode Enhancements"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKUP_DIR="$ROOT/backups"
@@ -40,6 +40,19 @@ export BACKUP_KEY DB_PASS
 # --------------------------------------------------
 # Docker prerequisite checks
 # --------------------------------------------------
+fix_linux_docker_credsstore() {
+  local docker_config_file="$HOME/.docker/config.json"
+  [[ -f "$docker_config_file" ]] || return 0
+
+  if grep -q '"credsStore"[[:space:]]*:[[:space:]]*"desktop"' "$docker_config_file"; then
+    echo "⚠️ Detected invalid Docker credsStore=desktop (Windows-only)"
+    echo "🔧 Fixing Docker config for Linux..."
+    cp "$docker_config_file" "$docker_config_file.bak"
+    sed -i '/"credsStore"[[:space:]]*:[[:space:]]*"desktop"/d' "$docker_config_file"
+    echo "✅ Docker config fixed (backup saved as config.json.bak)"
+  fi
+}
+
 require_docker_ready() {
   if ! command -v docker >/dev/null 2>&1; then
     echo "❌ Docker is required but not installed"
@@ -55,6 +68,7 @@ require_docker_ready() {
 }
 
 require_docker_ready
+fix_linux_docker_credsstore
 
 # --------------------------------------------------
 # Ensure DB container exists/runs
@@ -148,3 +162,4 @@ tar czf - -C "$TMP" . | \
 rm -rf "$TMP"
 
 echo "✅ Backup complete: $OUT.tar.enc"
+echo "[PHASE 85] BACKUP COMPLETE"

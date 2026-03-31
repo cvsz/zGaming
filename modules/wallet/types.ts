@@ -8,6 +8,18 @@ export interface TransferRequest {
   amountAtomic: bigint;
   asset: string;
   nonce: string;
+  maxFeePerGas?: bigint;
+  gasLimit?: bigint;
+}
+
+export interface SimulationReport {
+  ok: boolean;
+  chain: Chain;
+  chainId: number;
+  estimatedGas: bigint;
+  predictedFee: bigint;
+  warnings: string[];
+  reason?: string;
 }
 
 export interface SignedTx {
@@ -19,6 +31,7 @@ export interface SignedTx {
   rpcEndpoint: string;
   rpcAttempt: number;
   intent: HumanReadableIntent;
+  simulation: SimulationReport;
 }
 
 export interface HumanReadableIntent {
@@ -41,7 +54,14 @@ export interface SignProvider {
 }
 
 export interface ChainRuntimeConfig {
-  supportedChainIds: number[];
-  rpcEndpoints: string[];
+  supportedChainIds: readonly number[];
+  rpcEndpoints: readonly string[];
   startRpcAttempt?: number;
+  requiredChainId?: number;
+  maxAllowedFeeAtomic?: bigint;
+}
+
+export interface ChainValidationResult {
+  requestedChainId: number;
+  normalizedChainId: number;
 }

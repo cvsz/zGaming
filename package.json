@@ -6,10 +6,21 @@
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
     "lint": "turbo run lint",
-    "test": "turbo run test",
-    "audit:logic": "python3 scripts/full_logic_scan.py --repo-root ."
+    "test": "tsx --test tests/**/*.test.ts",
+    "test:integration": "tsx --test tests/factory-loop.test.ts",
+    "audit:logic": "python3 scripts/full_logic_scan.py --repo-root .",
+    "setup:codex": "./scripts/codex-setup.sh",
+    "ops:verify": "./scripts/verify-ops-guardrails.sh"
+  },
+  "dependencies": {
+    "@wagmi/core": "^2.22.1",
+    "viem": "^2.39.0"
   },
   "devDependencies": {
-    "turbo": "^2.5.1"
+    "@types/node": "^24.6.0",
+    "playwright": "^1.55.1",
+    "tsx": "^4.20.5",
+    "turbo": "^2.5.1",
+    "typescript": "^5.9.3"
   }
 }

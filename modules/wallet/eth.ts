@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type { ChainRuntimeConfig, SignedTx, TransferRequest } from "./types";
 import { StatelessSigner } from "./signer";
 import { RpcEndpointPool } from "./rpc";
+import { validateChainId } from "./chain-validation";
+import { simulateTransfer } from "./simulation";
 
 function hex(input: Uint8Array): string {
   return Buffer.from(input).toString("hex");
@@ -23,8 +25,11 @@ export class EthWallet {
       throw new Error(`EthWallet received chain ${request.chain}`);
     }
 
-    if (!this.config.supportedChainIds.includes(request.chainId)) {
-      throw new Error(`Unsupported ETH chainId ${request.chainId}`);
+    validateChainId("eth", request.chainId, this.config);
+
+    const simulation = simulateTransfer(request, this.config);
+    if (!simulation.ok) {
+      throw new Error(`ETH simulation failed: ${simulation.reason}`);
     }
 
     const rpcPool = new RpcEndpointPool(this.config.rpcEndpoints);
@@ -42,6 +47,7 @@ export class EthWallet {
       signerKeyId: this.keyId,
       rpcEndpoint: rpcResolution.endpoint,
       rpcAttempt: rpcResolution.attempt,
+      simulation,
       intent: {
         summary: `Transfer ${request.amountAtomic} ${request.asset} on ETH:${request.chainId}`,
         amountAtomic: request.amountAtomic.toString(),

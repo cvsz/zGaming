@@ -25,24 +25,13 @@ export async function transferWithIdempotency(
     await client.query("BEGIN");
     await ensureSerializable(client);
 
-    const existed = await client.query(
-      "SELECT immutable_hash FROM ledger WHERE idempotency_key = $1 LIMIT 1",
-      [input.idempotencyKey],
-    );
-
-    if (existed.rowCount && existed.rowCount > 0) {
-      await client.query("COMMIT");
-      return {
-        status: "duplicate",
-        ledgerHash: String(existed.rows[0].immutable_hash),
-      };
-    }
-
     const immutableHash = computeImmutableHash(input);
 
-    await client.query(
+    const insertResult = await client.query(
       `INSERT INTO ledger (user_id, amount, currency, type, idempotency_key, provider_ref, callback_payload_hash, immutable_hash)
-       VALUES ($1, $2, $3, 'debit', $4, $5, $6, $7)`,
+       VALUES ($1, $2, $3, 'debit', $4, $5, $6, $7)
+       ON CONFLICT (idempotency_key) DO NOTHING
+       RETURNING immutable_hash`,
       [
         input.userId,
         input.amount,
@@ -53,6 +42,18 @@ export async function transferWithIdempotency(
         immutableHash,
       ],
     );
+
+    if ((insertResult.rowCount ?? 0) === 0) {
+      const existed = await client.query(
+        "SELECT immutable_hash FROM ledger WHERE idempotency_key = $1 LIMIT 1",
+        [input.idempotencyKey],
+      );
+      await client.query("COMMIT");
+      return {
+        status: "duplicate",
+        ledgerHash: String(existed.rows[0].immutable_hash),
+      };
+    }
 
     await client.query(
       `INSERT INTO ledger_audit_log (idempotency_key, event_type, event_payload)

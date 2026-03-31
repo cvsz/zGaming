@@ -4,14 +4,18 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../compliance/KycService.php';
 require_once __DIR__ . '/../audit/AuditTrail.php';
+require_once __DIR__ . '/../observability/StructuredLogger.php';
 
 final class WalletTierService
 {
+    private readonly StructuredLogger $logger;
+
     public function __construct(
         private readonly PDO $db,
         private readonly ?KycService $kycService = null,
         private readonly ?AuditTrail $auditTrail = null
     ) {
+        $this->logger = new StructuredLogger('wallet-tier-service');
     }
 
     public function creditDeposit(int $userId, string $amount, string $idempotencyKey, string $region = 'us-east-1', ?string $transactionId = null): void
@@ -25,6 +29,19 @@ final class WalletTierService
 
     public function requestWithdrawal(int $userId, string $amount, string $idempotencyKey, string $region = 'us-east-1', ?string $transactionId = null): int
     {
+
+        if ($this->isReadOnlyMode()) {
+            throw new RuntimeException('SERVICE_READ_ONLY_MODE');
+        }
+
+        if ($this->isWithdrawalsDisabled()) {
+            throw new RuntimeException('WITHDRAWALS_DISABLED');
+        }
+
+        if ($this->isUserFrozen($userId)) {
+            throw new RuntimeException('USER_WALLET_FROZEN');
+        }
+
         if ((bool)(getenv('REQUIRE_KYC_FOR_WITHDRAWALS') ?: false) && $this->kycService !== null && !$this->kycService->isWithdrawalAllowed($userId)) {
             throw new RuntimeException('WITHDRAWAL_REQUIRES_VERIFIED_KYC');
         }
@@ -52,7 +69,40 @@ final class WalletTierService
                 ->execute([$userId, $transactionId]);
         }
 
+
+        $this->logger->info('withdrawal_requested', [
+            'user_id' => $userId,
+            'tx_id' => $transactionId,
+            'amount' => $amount,
+            'region' => $region,
+            'cold_approval' => $needsColdApproval,
+        ]);
+
         return $id;
+    }
+
+    private function isReadOnlyMode(): bool
+    {
+        return $this->isControlEnabled('service_read_only');
+    }
+
+    private function isWithdrawalsDisabled(): bool
+    {
+        return $this->isControlEnabled('withdrawals_disabled');
+    }
+
+    private function isUserFrozen(int $userId): bool
+    {
+        $stmt = $this->db->prepare("SELECT is_frozen FROM user_restrictions WHERE user_id = ? LIMIT 1");
+        $stmt->execute([$userId]);
+        return (int)($stmt->fetchColumn() ?: 0) === 1;
+    }
+
+    private function isControlEnabled(string $controlName): bool
+    {
+        $stmt = $this->db->prepare('SELECT is_enabled FROM ops_controls WHERE control_name = ? LIMIT 1');
+        $stmt->execute([$controlName]);
+        return (int)($stmt->fetchColumn() ?: 0) === 1;
     }
 
     public function approveColdWithdrawal(int $queueId, string $approver): void

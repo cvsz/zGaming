@@ -54,10 +54,38 @@ async function startServer(): Promise<void> {
 
   const loginSchema = z.object({
     userId: z.string().min(1),
-    role: z.enum(["player", "admin", "operator"]),
+    role: z.enum(["player", "admin", "operator", "auditor"]),
   });
 
-  app.get("/health", async () => ({ status: "ok", service: "api-gateway" }));
+  app.get("/health", async () => ({ status: "ok", service: "api-gateway", timestamp: new Date().toISOString() }));
+
+  app.get("/ready", async (_request, reply) => {
+    if (!pool) {
+      return { status: "ready", checks: { db: "skipped" } };
+    }
+
+    try {
+      await pool.query("SELECT 1");
+      return { status: "ready", checks: { db: "ok" } };
+    } catch (error) {
+      app.log.error(error);
+      return reply.code(503).send({ status: "not_ready", checks: { db: "failed" } });
+    }
+  });
+
+  app.get("/metrics", async () => {
+    const lines: string[] = [];
+    lines.push("# TYPE zgaming_gateway_seen_webhook_events gauge");
+    lines.push(`zgaming_gateway_seen_webhook_events ${seenWebhookEvents.size}`);
+
+    if (pool) {
+      const pending = await pool.query("SELECT COUNT(*)::int AS count FROM webhook_events WHERE received_at >= NOW() - INTERVAL '10 minutes'");
+      lines.push("# TYPE zgaming_gateway_webhook_events_10m gauge");
+      lines.push(`zgaming_gateway_webhook_events_10m ${pending.rows[0]?.count ?? 0}`);
+    }
+
+    return lines.join("\n") + "\n";
+  });
 
   app.post("/auth/token", async (request: any) => {
     const payload = loginSchema.parse(request.body);

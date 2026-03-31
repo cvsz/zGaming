@@ -1,0 +1,93 @@
+name: zGaming CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  NODE_VERSION: 20
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install deps
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - name: TypeScript check
+        run: pnpm tsc --noEmit
+      - name: Lint
+        run: pnpm lint
+      - name: PHP lint
+        run: find backend -name "*.php" -exec php -l {} \;
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Secret scan
+        run: |
+          if grep -r "PRIVATE_KEY\|API_KEY\|SECRET" .; then
+            echo "❌ Potential secret leak"
+            exit 1
+          fi
+      - name: Dependency audit
+        run: |
+          corepack enable
+          pnpm audit --prod || true
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=5s
+          --health-timeout=2s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for MySQL
+        run: |
+          until mysqladmin ping -h 127.0.0.1 -proot; do sleep 2; done
+      - name: Run migrations
+        run: |
+          mysql -h 127.0.0.1 -uroot -proot test < backend/db/wallet.sql
+      - name: Run tests
+        run: pnpm test
+
+  build:
+    needs: [lint, security, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: docker compose build
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy (placeholder)
+        run: |
+          echo "🚀 Deploy step"
+          # Replace with:
+          # ssh deploy@server "cd /app && git pull && docker compose up -d"

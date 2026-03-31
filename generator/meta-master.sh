@@ -188,7 +188,7 @@ is_phase_completed() {
 
   state_file="$(phase_state_file "$phase")"
   [[ -f "$state_file" ]] || return 1
-
+  [[ -f "$PHASES_DIR/$phase" ]] || return 1
   current_hash="$(phase_hash "$phase")"
   saved_hash="$(<"$state_file")"
   [[ "$current_hash" == "$saved_hash" ]]

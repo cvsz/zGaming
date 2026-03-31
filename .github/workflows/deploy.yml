@@ -73,7 +73,9 @@ jobs:
         run: |
           set -euo pipefail
           bundle="zgaming-source-${{ steps.deploy_env.outputs.tag }}.tar.gz"
-          tar --exclude-vcs --exclude="./${bundle}" -czf "${bundle}" .
+          temp_bundle="${RUNNER_TEMP}/${bundle}"
+          tar --warning=no-file-changed --exclude-vcs --exclude="./${bundle}" -czf "${temp_bundle}" .
+          mv "${temp_bundle}" "${bundle}"
 
       - name: Upload source bundle
         uses: actions/upload-artifact@v4

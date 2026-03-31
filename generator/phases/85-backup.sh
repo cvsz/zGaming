@@ -54,7 +54,17 @@ ensure_db_container() {
 
   if [[ -f "$ROOT/docker-compose.yml" ]]; then
     echo "ℹ️ $DB_CONTAINER missing; attempting docker compose up -d $DB_SERVICE"
-    (cd "$ROOT" && docker compose up -d "$DB_SERVICE")
+    local compose_out
+    if ! compose_out="$(cd "$ROOT" && docker compose up -d "$DB_SERVICE" 2>&1)"; then
+      echo "$compose_out"
+      if grep -q "docker-credential-desktop\\.exe" <<<"$compose_out"; then
+        echo "❌ Docker credential helper is misconfigured (docker-credential-desktop.exe not found)."
+        echo "   Fix ~/.docker/config.json credsStore/credHelpers for this host, then retry."
+      fi
+      echo "❌ Failed to start $DB_SERVICE via docker compose."
+      exit 1
+    fi
+    echo "$compose_out"
     return 0
   fi
 

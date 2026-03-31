@@ -119,6 +119,14 @@ jobs:
             echo "backend/db/wallet.sql not found - skipping migration"
           fi
 
+      - name: Daily ledger reconciliation check
+        run: |
+          if [ -f scripts/reconcile-daily.php ]; then
+            php scripts/reconcile-daily.php
+          else
+            echo "scripts/reconcile-daily.php not found - skipping reconciliation"
+          fi
+
       - name: Run tests
         run: pnpm test
 

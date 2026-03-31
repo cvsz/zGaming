@@ -17,6 +17,7 @@ export interface SignedTx {
   rawTx: string;
   signerKeyId: string;
   rpcEndpoint: string;
+  rpcAttempt: number;
   intent: HumanReadableIntent;
 }
 
@@ -42,4 +43,5 @@ export interface SignProvider {
 export interface ChainRuntimeConfig {
   supportedChainIds: number[];
   rpcEndpoints: string[];
+  startRpcAttempt?: number;
 }

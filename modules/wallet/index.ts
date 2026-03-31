@@ -1,10 +1,10 @@
 import { EthWallet } from "./eth";
 import { SolWallet } from "./sol";
-import { HmacSignProvider, StatelessSigner } from "./signer";
-import type { ChainRuntimeConfig, SignedTx, TransferRequest } from "./types";
+import { StatelessSigner } from "./signer";
+import type { ChainRuntimeConfig, SignProvider, SignedTx, TransferRequest } from "./types";
 
 export interface OmniWalletConfig {
-  keyMap: Record<string, string>;
+  signerProvider: SignProvider;
   ethKeyId: string;
   solKeyId: string;
   eth: ChainRuntimeConfig;
@@ -16,7 +16,7 @@ export class OmniWallet {
   private readonly sol: SolWallet;
 
   constructor(config: OmniWalletConfig) {
-    const signer = new StatelessSigner(new HmacSignProvider(config.keyMap));
+    const signer = new StatelessSigner(config.signerProvider);
     this.eth = new EthWallet(signer, config.ethKeyId, config.eth);
     this.sol = new SolWallet(signer, config.solKeyId, config.sol);
   }
@@ -34,3 +34,4 @@ export * from "./types";
 export * from "./signer";
 export * from "./eth";
 export * from "./sol";
+export * from "./rpc";

@@ -19,6 +19,24 @@ export class HmacSignProvider implements SignProvider {
   }
 }
 
+/**
+ * Helper for non-hardcoded secret loading from environment.
+ * Accepts a map of keyId => env var name.
+ */
+export function createEnvBackedHmacProvider(keyEnvMap: Record<string, string>): HmacSignProvider {
+  const keyMap: Record<string, string> = {};
+
+  for (const [keyId, envName] of Object.entries(keyEnvMap)) {
+    const value = process.env[envName];
+    if (!value) {
+      throw new Error(`Missing signing secret env var: ${envName} for keyId=${keyId}`);
+    }
+    keyMap[keyId] = value;
+  }
+
+  return new HmacSignProvider(keyMap);
+}
+
 export class StatelessSigner {
   constructor(private readonly provider: SignProvider) {}
 

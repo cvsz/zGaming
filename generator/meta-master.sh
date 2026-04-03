@@ -10,15 +10,19 @@ export MM_FROM_PHASE="${MM_FROM_PHASE:-}"
 export MM_TO_PHASE="${MM_TO_PHASE:-}"
 source "$ROOT/generator/stages/lib/common.sh"
 
-# Optional pre-flight asserts:
-# - stage-local assert lib (if present) runs by default
-# - legacy generator/lib/assert.sh is only executed when explicitly requested,
-#   because it validates generated artifacts that do not exist on first run.
-if [[ -f "$ROOT/generator/stages/lib/assert.sh" ]]; then
-    source "$ROOT/generator/stages/lib/assert.sh"
-elif [[ "${MM_RUN_LEGACY_PREFLIGHT_ASSERTS:-0}" == "1" && -f "$ROOT/generator/lib/assert.sh" ]]; then
-    source "$ROOT/generator/lib/assert.sh"
-fi
+run_preflight_asserts() {
+    # Optional pre-flight asserts:
+    # - stage-local assert lib (if present) runs by default
+    # - legacy generator/lib/assert.sh is only executed when explicitly requested,
+    #   because it validates generated artifacts that do not exist on first run.
+    if [[ -f "$ROOT/generator/stages/lib/assert.sh" ]]; then
+        # shellcheck source=/dev/null
+        source "$ROOT/generator/stages/lib/assert.sh"
+    elif [[ "${MM_RUN_LEGACY_PREFLIGHT_ASSERTS:-0}" == "1" && -f "$ROOT/generator/lib/assert.sh" ]]; then
+        # shellcheck source=/dev/null
+        source "$ROOT/generator/lib/assert.sh"
+    fi
+}
 
 require_var() {
     local var_name="$1"
@@ -37,6 +41,7 @@ print_header() {
 case "${1:-all}" in
     all)
         require_var STAGE_NAME
+        run_preflight_asserts
         print_header
         log "INFO" "Initiating full merged generation pipeline"
         start_time=$(date +%s)
@@ -68,6 +73,7 @@ EOM
         echo "Next recommended action: docker compose up -d --build"
         ;;
     stage)
+        run_preflight_asserts
         stage_file="$ROOT/generator/stages/${2}.sh"
         if [[ -f "$stage_file" ]]; then
             bash "$stage_file"
@@ -82,7 +88,17 @@ EOM
         echo '{"stages":{}}' > "$ROOT/.meta-master-state/stages.json"
         echo "State and artifacts reset."
         ;;
+    scan)
+        mkdir -p "$ROOT/reports"
+        python3 "$ROOT/scripts/full_logic_scan.py" \
+            --repo-root "$ROOT" \
+            --output-json "reports/logic-scan-report.json" \
+            --output-md "reports/logic-scan-upgrade-plan.md"
+        echo "Scan artifacts generated:"
+        echo " - $ROOT/reports/logic-scan-report.json"
+        echo " - $ROOT/reports/logic-scan-upgrade-plan.md"
+        ;;
     *)
-        echo "Usage: ./generator/meta-master.sh [all | stage <N> | clean]"
+        echo "Usage: ./generator/meta-master.sh [all | stage <N> | clean | scan]"
         ;;
 esac

@@ -4,6 +4,11 @@
 set -Eeuo pipefail
 
 export ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../" && pwd)}"
+export STAGE_NAME="${STAGE_NAME:-all}"
+export PHASE_NAME="${PHASE_NAME:-}"
+export CURRENT_STAGE="${CURRENT_STAGE:-$STAGE_NAME}"
+export MM_FROM_PHASE="${MM_FROM_PHASE:-}"
+export MM_TO_PHASE="${MM_TO_PHASE:-}"
 STATE_DIR="$ROOT/.meta-master-state"
 LOG_FILE="$ROOT/logs/generator-stages.log"
 MANIFEST_DIR="$ROOT/manifests"

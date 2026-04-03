@@ -1,6 +1,9 @@
 packages:
-  - "apps/*"
-  - "packages/*"
-  - "services/*"
-  - "modules/*"
-  - "factory/*"
+  - apps/*
+  - packages/*
+  - services/*
+  - modules/*
+  - factory/*
+
+patchedDependencies:
+  fast-jwt@6.1.0: patches/fast-jwt@6.1.0.patch

@@ -1,0 +1,23 @@
+diff --git a/src/crypto.js b/src/crypto.js
+index 3896ada0c606beb9f9b77faa5831114a12a2214a..1581ea805d0845b6336f1d1481de8b05d603afb9 100644
+--- a/src/crypto.js
++++ b/src/crypto.js
+@@ -124,14 +124,15 @@ function performDetectPrivateKeyAlgorithm(key) {
+ }
+ 
+ function performDetectPublicKeyAlgorithms(key) {
+-  const publicKeyPemMatch = key.match(publicKeyPemMatcher)
++  const normalizedKey = key.trimStart()
++  const publicKeyPemMatch = normalizedKey.match(publicKeyPemMatcher)
+ 
+-  if (key.match(privateKeyPemMatcher)) {
++  if (normalizedKey.match(privateKeyPemMatcher)) {
+     throw new TokenError(TokenError.codes.invalidKey, 'Private keys are not supported for verifying.')
+   } else if (publicKeyPemMatch && publicKeyPemMatch[1] === 'RSA') {
+     // pkcs1 format - Can only be RSA key
+     return rsaAlgorithms
+-  } else if (!publicKeyPemMatch && !key.includes(publicKeyX509CertMatcher)) {
++  } else if (!publicKeyPemMatch && !normalizedKey.includes(publicKeyX509CertMatcher)) {
+     // Not a PEM, assume a plain secret
+     return hsAlgorithms
+   }

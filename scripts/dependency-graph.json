@@ -1,0 +1,9 @@
+{
+  "phases": {
+    "80-security": [],
+    "85-backup": ["db"],
+    "86-restore": ["db"],
+    "90-cloudflare": ["network"],
+    "95-k8s": ["docker"]
+  }
+}

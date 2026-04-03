@@ -92,3 +92,25 @@ Do NOT:
 - perform destructive actions
 
 Stay within safe testing boundaries.
+
+
+## 📦 Dependency Security Snapshot (April 3, 2026)
+
+The repository currently resolves `@fastify/jwt@10.0.0` which pulls in `fast-jwt@6.1.0`.
+
+Verification commands run in project root:
+
+- `pnpm update fast-jwt` → already up to date
+- `pnpm why fast-jwt` → `@fastify/jwt 10.0.0 -> fast-jwt 6.1.0`
+- `pnpm audit` → reports GHSA-mvf2-f6gm-w987 affecting `fast-jwt <= 6.1.0`
+
+### Current Risk Posture
+
+As of April 3, 2026, `pnpm audit` still flags a critical advisory for `fast-jwt` with no patched version published in the advisory feed.
+
+Because this project depends on `@fastify/jwt`, remediation may require either:
+
+1. an upstream `@fastify/jwt` release that adopts a patched `fast-jwt`, or
+2. temporary risk controls (strict algorithm allowlisting, strong claim validation, and key-rotation controls) until a patched release is available.
+
+Track: <https://github.com/advisories/GHSA-mvf2-f6gm-w987>

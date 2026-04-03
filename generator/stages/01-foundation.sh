@@ -9,8 +9,8 @@ progress "Foundation (00–10)"
 
 phases='"00-guard.sh","10-backend.sh"'
 
-"$PHASES_DIR/00-guard.sh" || { rollback_stage; exit 1; }
-"$PHASES_DIR/10-backend.sh" || { rollback_stage; exit 1; }
+run_phase "00-guard.sh" || { rollback_stage; exit 1; }
+run_phase "10-backend.sh" || { rollback_stage; exit 1; }
 
 generate_manifest "$STAGE_NAME" "$phases"
 mark_stage_completed "$STAGE_NAME"

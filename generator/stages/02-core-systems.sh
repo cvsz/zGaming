@@ -10,7 +10,7 @@ progress "Core Systems (20–38)"
 phases='"20-auth.sh","30-wallet.sh","35-fx.sh","36-fx-live.sh","37-currency-lock.sh","38-multi-wallet.sh"'
 
 for p in 20-auth 30-wallet 35-fx 36-fx-live 37-currency-lock 38-multi-wallet; do
-    "$PHASES_DIR/${p}.sh" || { rollback_stage; exit 1; }
+    run_phase "${p}.sh" || { rollback_stage; exit 1; }
 done
 
 generate_manifest "$STAGE_NAME" "$phases"

@@ -10,7 +10,7 @@ progress "Growth Features (40–60)"
 phases='"40-providers.sh","50-callbacks.sh","60-frontend.sh"'
 
 for p in 40-providers 50-callbacks 60-frontend; do
-    "$PHASES_DIR/${p}.sh" || { rollback_stage; exit 1; }
+    run_phase "${p}.sh" || { rollback_stage; exit 1; }
 done
 
 generate_manifest "$STAGE_NAME" "$phases"

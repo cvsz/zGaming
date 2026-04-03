@@ -81,3 +81,16 @@ EOM
 rollback_stage() {
     log "WARN" "Rollback triggered for stage $STAGE_NAME – no custom actions defined."
 }
+
+run_phase() {
+    local phase_script="$1"
+    local full_path="$PHASES_DIR/$phase_script"
+
+    if [[ ! -f "$full_path" ]]; then
+        log "ERROR" "Phase script not found: $full_path"
+        return 1
+    fi
+
+    log "INFO" "Executing phase: $phase_script"
+    bash "$full_path"
+}

@@ -9,6 +9,15 @@ export CURRENT_STAGE="${CURRENT_STAGE:-$STAGE_NAME}"
 export MM_FROM_PHASE="${MM_FROM_PHASE:-}"
 export MM_TO_PHASE="${MM_TO_PHASE:-}"
 source "$ROOT/generator/stages/lib/common.sh"
+source "$ROOT/generator/stages/lib/assert.sh" 2>/dev/null || source "$ROOT/generator/lib/assert.sh" 2>/dev/null || true
+
+require_var() {
+    local var_name="$1"
+    if [[ -z "${!var_name:-}" ]]; then
+        echo "ERROR: Required variable '${var_name}' is not set." >&2
+        exit 1
+    fi
+}
 
 print_header() {
     echo "=================================================="
@@ -18,12 +27,13 @@ print_header() {
 
 case "${1:-all}" in
     all)
+        require_var STAGE_NAME
         print_header
         log "INFO" "Initiating full merged generation pipeline"
         start_time=$(date +%s)
 
         for stage in "$ROOT/generator/stages"/0[1-6]-*.sh; do
-            "$stage" || exit 1
+            bash "$stage" || exit 1
         done
 
         end_time=$(date +%s)
@@ -51,7 +61,7 @@ EOM
     stage)
         stage_file="$ROOT/generator/stages/${2}.sh"
         if [[ -f "$stage_file" ]]; then
-            "$stage_file"
+            bash "$stage_file"
         else
             log "ERROR" "Stage not found: $2"
             exit 1

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS wallet_ledger (
   ref_type VARCHAR(32) NOT NULL,
   ref_id VARCHAR(64) NOT NULL,
   provider VARCHAR(32) DEFAULT NULL,
+  rate_id BIGINT DEFAULT NULL COMMENT 'Pinned FX snapshot id',
   fx_rate DECIMAL(18,8) DEFAULT NULL COMMENT 'Added for future multi-currency',
   base_amount DECIMAL(18,6) DEFAULT NULL,
   prev_hash CHAR(64) NOT NULL,
@@ -53,10 +54,14 @@ CREATE TABLE IF NOT EXISTS wallet_ledger (
 
 CREATE TABLE IF NOT EXISTS wallet_idempotency_keys (
   idempotency_key VARCHAR(128) PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  ref_type VARCHAR(32) NOT NULL,
+  ref_id VARCHAR(64) NOT NULL,
   status ENUM('pending','complete') NOT NULL DEFAULT 'pending',
   response_hash CHAR(64) DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_user_ref (user_id, ref_type, ref_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -233,6 +238,14 @@ final class WalletService
                 self::ensureUser($userId);
                 self::guardFinancialLimits($userId, $direction, $normalizedAmount);
 
+                // Strong idempotency reservation (eliminates TOCTOU)
+                $db->prepare(
+                    "INSERT INTO wallet_idempotency_keys
+                     (idempotency_key, user_id, ref_type, ref_id, status)
+                     VALUES (?, ?, ?, ?, 'pending')
+                     ON DUPLICATE KEY UPDATE idempotency_key = idempotency_key"
+                )->execute([$idemKey, $userId, $refType, $refId]);
+
                 // Idempotency lock
                 $idemStmt = $db->prepare(
                     "SELECT status, response_hash FROM wallet_idempotency_keys
@@ -245,6 +258,12 @@ final class WalletService
                     $db->commit();
                     return $idemRow['response_hash']; // replay-safe
                 }
+
+                // Lock wallet cache row to prevent lost-update races
+                $walletStmt = $db->prepare(
+                    "SELECT balance FROM wallets WHERE user_id = ? FOR UPDATE"
+                );
+                $walletStmt->execute([$userId]);
 
                 // Previous ledger for chaining
                 $prevStmt = $db->prepare(
@@ -291,10 +310,10 @@ final class WalletService
 
                 // Mark idempotency complete
                 $db->prepare(
-                    "INSERT INTO wallet_idempotency_keys (idempotency_key, status, response_hash)
-                     VALUES (?, 'complete', ?)
-                     ON DUPLICATE KEY UPDATE status = 'complete', response_hash = ?"
-                )->execute([$idemKey, $hash, $hash]);
+                    "UPDATE wallet_idempotency_keys
+                        SET status = 'complete', response_hash = ?
+                      WHERE idempotency_key = ?"
+                )->execute([$hash, $idemKey]);
 
                 // Audit
                 $db->prepare(

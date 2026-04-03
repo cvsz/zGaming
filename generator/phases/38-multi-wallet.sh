@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS wallet_ledger_multi (
   direction ENUM('debit','credit') NOT NULL,
   amount DECIMAL(18,6) NOT NULL,
   currency CHAR(3) NOT NULL,
+  fx_rate_id BIGINT NOT NULL,
   fx_rate DECIMAL(18,8) NOT NULL,
   base_amount DECIMAL(18,6) NOT NULL,
   ref VARCHAR(128) NOT NULL,
@@ -123,10 +124,10 @@ final class ProviderWallet
             throw new InvalidArgumentException('invalid_amount_non_positive');
         }
 
-        $fxRate = FxService::getRate($currency, $baseCurrency);
+        $fxSnapshot = FxService::getRateSnapshot($currency, $baseCurrency);
+        $fxRate = $fxSnapshot['rate'];
+        $fxRateId = $fxSnapshot['rate_id'];
         $baseAmount = bcmul($amount, $fxRate, self::SCALE);
-
-        $idemKey = hash('sha256', implode('|', [$userId, $provider, $ref]));
 
         $db = self::conn();
         for ($attempt = 1; $attempt <= self::MAX_RETRIES; ++$attempt) {
@@ -144,6 +145,22 @@ final class ProviderWallet
                     $db->commit();
                     return self::getBalance($userId, $provider, $currency);
                 }
+
+                // Lock provider wallet projection row
+                $walletStmt = $db->prepare(
+                    "SELECT balance FROM wallets
+                     WHERE user_id = ? AND provider = ? AND currency = ?
+                     FOR UPDATE"
+                );
+                $walletStmt->execute([$userId, $provider, $currency]);
+
+                // Lock base wallet projection row
+                $baseWalletStmt = $db->prepare(
+                    "SELECT balance FROM wallets
+                     WHERE user_id = ? AND provider = '__BASE__' AND currency = ?
+                     FOR UPDATE"
+                );
+                $baseWalletStmt->execute([$userId, $baseCurrency]);
 
                 // Previous ledger row for chaining (scoped to user+provider)
                 $prevStmt = $db->prepare(
@@ -176,11 +193,11 @@ final class ProviderWallet
                 $db->prepare(
                     "INSERT INTO wallet_ledger_multi
                      (user_id, provider, sequence_id, direction, amount, currency,
-                      fx_rate, base_amount, ref, prev_hash, hash, balance_after)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                      fx_rate_id, fx_rate, base_amount, ref, prev_hash, hash, balance_after)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 )->execute([
                     $userId, $provider, $sequenceId, 'credit', $amount, $currency,
-                    $fxRate, $baseAmount, $ref, $prev['hash'], $hash, $balanceAfter
+                    $fxRateId, $fxRate, $baseAmount, $ref, $prev['hash'], $hash, $balanceAfter
                 ]);
 
                 // Update provider wallet cache
@@ -285,6 +302,7 @@ final class MultiLedgerVerifier
         $db = Database::conn();
         $stmt = $db->prepare(
             "SELECT sequence_id, direction, amount, currency, fx_rate, base_amount, ref,
+                    provider,
                     prev_hash, hash, balance_after
                FROM wallet_ledger_multi
               WHERE user_id = ? AND provider = ?
@@ -354,8 +372,9 @@ cat > "$BACKEND/wallet/MULTI_WALLET.md" <<'MD'
 - Full ACID + SERIALIZABLE + deadlock retry
 - Idempotent via `(user_id, provider, ref)`
 - BC Math precision (18,6)
-- FX snapshot via FxService (Phase 36)
+- FX snapshot via FxService::getRateSnapshot() with pinned `fx_rate_id`
 - Tamper-evident hash chaining + immutable triggers
+- Provider wallet + __BASE__ wallet updates are committed in one transaction
 - Negative balances allowed by design (business-rule enforcement is external)
 
 ## Verification

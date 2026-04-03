@@ -45,7 +45,7 @@ PHP
 
 cat > "$BACKEND/db/fx.sql" <<'SQL'
 CREATE TABLE IF NOT EXISTS fx_rates (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  rate_id BIGINT AUTO_INCREMENT PRIMARY KEY,
   base VARCHAR(3) NOT NULL,
   quote VARCHAR(3) NOT NULL,
   rate DECIMAL(18,8) NOT NULL,
@@ -91,8 +91,7 @@ function insertRate(string $base, string $quote, string $rate, string $source): 
     global $db;
     $db->prepare(
         "INSERT INTO fx_rates (base, quote, rate, source, valid_from)
-         VALUES (?,?,?,?,'CURRENT_TIMESTAMP')
-         ON DUPLICATE KEY UPDATE rate = VALUES(rate)"
+         VALUES (?,?,?,?,CURRENT_TIMESTAMP)"
     )->execute([$base, $quote, $rate, $source]);
 }
 
@@ -211,20 +210,45 @@ declare(strict_types=1);
  */
 final class FxService
 {
-    public static function getRate(string $base, string $quote): string
+    private const TTL_SECONDS = 300;
+    private const TRUSTED = ['ecb', 'fixer', 'normalized'];
+
+    /**
+     * Returns pinned FX snapshot to avoid mid-transaction drift/replay.
+     *
+     * @return array{rate_id:int,rate:string,source:string,valid_from:string}
+     */
+    public static function getRateSnapshot(string $base, string $quote): array
     {
         $db = Database::conn();
         $stmt = $db->prepare(
-            "SELECT rate FROM fx_rates
+            "SELECT rate_id, rate, source, valid_from FROM fx_rates
              WHERE base = ? AND quote = ?
              ORDER BY valid_from DESC LIMIT 1"
         );
         $stmt->execute([$base, $quote]);
-        $rate = (string)$stmt->fetchColumn();
-        if (bccomp($rate, '0', 8) <= 0) {
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) {
             throw new RuntimeException("No FX rate for $base/$quote");
         }
-        return $rate;
+        $rate = (string)$row['rate'];
+        if (bccomp($rate, '0', 8) <= 0) {
+            throw new RuntimeException("Invalid FX rate for $base/$quote");
+        }
+        if (!in_array((string)$row['source'], self::TRUSTED, true)) {
+            throw new RuntimeException("Untrusted FX source for $base/$quote");
+        }
+        $age = time() - strtotime((string)$row['valid_from']);
+        if ($age > self::TTL_SECONDS) {
+            throw new RuntimeException("Stale FX rate for $base/$quote");
+        }
+
+        return [
+            'rate_id' => (int)$row['rate_id'],
+            'rate' => $rate,
+            'source' => (string)$row['source'],
+            'valid_from' => (string)$row['valid_from'],
+        ];
     }
 }
 PHP
@@ -260,7 +284,7 @@ cat > "$BACKEND/fx/LIVE.md" <<'MD'
 - Outlier + freshness validation
 - Immutable triggers (same as wallet ledger)
 ## Integration
-- WalletService::apply() now calls FxService::getRate()
+- WalletService::apply() now calls FxService::getRateSnapshot()
 - No real-time FX during credit – always snapshot
 ## Failure Mode
 - Both providers down → system continues with last valid rates

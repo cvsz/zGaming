@@ -123,9 +123,16 @@ def check_repo_signals(repo_root: Path) -> list[CheckResult]:
 
     hit_count = 0
     scan_globs = ["**/*.sh", "**/*.ts", "**/*.py", "**/*.md"]
+    excluded_paths = {
+        Path("scripts/full_logic_scan.py"),
+    }
+    excluded_dirs = {"reports", ".git", "node_modules", "__pycache__"}
     for pattern in scan_globs:
         for path in repo_root.glob(pattern):
-            if ".git" in path.parts or "node_modules" in path.parts:
+            relative_path = path.relative_to(repo_root)
+            if any(part in excluded_dirs for part in relative_path.parts):
+                continue
+            if relative_path in excluded_paths:
                 continue
             text = read_text(path)
             hit_count += text.count("TODO") + text.count("FIXME")

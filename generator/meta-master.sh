@@ -3,6 +3,11 @@
 
 set -Eeuo pipefail
 export ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export STAGE_NAME="${STAGE_NAME:-meta-master}"
+export PHASE_NAME="${PHASE_NAME:-${1:-}}"
+export CURRENT_STAGE="${CURRENT_STAGE:-$STAGE_NAME}"
+export MM_FROM_PHASE="${MM_FROM_PHASE:-}"
+export MM_TO_PHASE="${MM_TO_PHASE:-}"
 source "$ROOT/generator/stages/lib/common.sh"
 
 print_header() {

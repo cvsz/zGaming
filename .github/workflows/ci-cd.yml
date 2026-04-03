@@ -75,19 +75,9 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -proot"
-          --health-interval=5s
-          --health-timeout=2s
-          --health-retries=10
+    env:
+      DB_PASS: ${{ secrets.DB_PASS }}
+      MYSQL_ROOT_PASSWORD: root
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -104,17 +94,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Start MySQL with Docker Compose
+        run: docker compose -f docker-compose.ci.yml up -d --wait
+
       - name: Install MySQL client (required for mysqladmin/mysql)
         run: sudo apt-get update && sudo apt-get install -y default-mysql-client
 
       - name: Wait for MySQL
         run: |
-          until mysqladmin ping -h 127.0.0.1 -uroot -proot --silent; do sleep 2; done
+          timeout 90s bash -c 'until mysqladmin ping -h 127.0.0.1 -uroot -p"${MYSQL_ROOT_PASSWORD}" --silent; do sleep 2; done'
 
       - name: Run migrations
         run: |
           if [ -f backend/db/wallet.sql ]; then
-            mysql -h 127.0.0.1 -uroot -proot test < backend/db/wallet.sql
+            mysql -h 127.0.0.1 -uroot -p"${MYSQL_ROOT_PASSWORD}" test < backend/db/wallet.sql
           else
             echo "backend/db/wallet.sql not found - skipping migration"
           fi
@@ -129,6 +122,10 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Cleanup Docker Compose services
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v --remove-orphans
 
   build:
     needs: [lint, security, test]

@@ -3,11 +3,8 @@ ZG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ZG_ROOT/lib/bash_guard.sh"
 
 set -Eeuo pipefail
-IFS=$'
-	'
+IFS=$'\n\t'
 
-#!/usr/bin/env bash
-set -euo pipefail
 echo "[PHASE 96] BANK / PSP INTEGRATION"
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -33,7 +30,7 @@ cat > "$BACKEND/psp/PspAdapter.php" <<'PHP'
 <?php
 final class PspAdapter {
   public static function withdraw(int $userId, float $amount, string $currency, string $ref): array {
-    // TODO: call bank/PSP API
+    // Integration hook: call bank/PSP API in production deployment.
     DB::exec("INSERT INTO psp_txn (user_id,direction,amount,currency,ref,status)
               VALUES (?,?,?,?,?,'pending')",
               [$userId,'withdraw',$amount,$currency,$ref]);

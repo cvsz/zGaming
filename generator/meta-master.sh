@@ -9,7 +9,16 @@ export CURRENT_STAGE="${CURRENT_STAGE:-$STAGE_NAME}"
 export MM_FROM_PHASE="${MM_FROM_PHASE:-}"
 export MM_TO_PHASE="${MM_TO_PHASE:-}"
 source "$ROOT/generator/stages/lib/common.sh"
-source "$ROOT/generator/stages/lib/assert.sh" 2>/dev/null || source "$ROOT/generator/lib/assert.sh" 2>/dev/null || true
+
+# Optional pre-flight asserts:
+# - stage-local assert lib (if present) runs by default
+# - legacy generator/lib/assert.sh is only executed when explicitly requested,
+#   because it validates generated artifacts that do not exist on first run.
+if [[ -f "$ROOT/generator/stages/lib/assert.sh" ]]; then
+    source "$ROOT/generator/stages/lib/assert.sh"
+elif [[ "${MM_RUN_LEGACY_PREFLIGHT_ASSERTS:-0}" == "1" && -f "$ROOT/generator/lib/assert.sh" ]]; then
+    source "$ROOT/generator/lib/assert.sh"
+fi
 
 require_var() {
     local var_name="$1"
